@@ -1,1130 +1,413 @@
-import React, {
-  useEffect,
-  useMemo,
-  useState
-} from "react";
-
+import React, { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Image,
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+  View, Text, TextInput, TouchableOpacity, Image, ScrollView,
+  StyleSheet, Alert, ActivityIndicator
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Location from "expo-location";
 
-import AsyncStorage from
-  "@react-native-async-storage/async-storage";
-
-const API =
-  process.env.EXPO_PUBLIC_API_URL ||
-  "https://homy-b5e6.onrender.com/api";
-
-const green = "#183b2b";
-const cream = "#f6f6f0";
-const lime = "#d8edaa";
-
-const money = (n) =>
-  "₹" + (n / 100).toFixed(0);
+const API = "https://homy-b5e6.onrender.com/api";
 
 export default function App() {
-  const [products, setProducts] = useState([]);
-  const [filter, setFilter] = useState("ALL");
-  const [cart, setCart] = useState({});
   const [token, setToken] = useState("");
   const [user, setUser] = useState(null);
-  const [page, setPage] = useState("home");
-
+  const [products, setProducts] = useState([]);
+  const [cart, setCart] = useState({});
+  const [screen, setScreen] = useState("home");
+  const [selected, setSelected] = useState(null);
+  const [orders, setOrders] = useState([]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [register, setRegister] = useState(false);
   const [address, setAddress] = useState("");
+  const [location, setLocation] = useState(null);
+  const [filter, setFilter] = useState("ALL");
+  const [busy, setBusy] = useState(false);
 
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  async function api(path, opts = {}) {
+  async function api(path, options = {}) {
     const response = await fetch(API + path, {
-      ...opts,
+      ...options,
       headers: {
         "Content-Type": "application/json",
-        ...(token
-          ? {
-              Authorization: "Bearer " + token
-            }
-          : {}),
-        ...(opts.headers || {})
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
       }
     });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || "Something went wrong");
+    return result;
+  }
 
-    const data =
-      response.status === 204
-        ? null
-        : await response.json();
-
-    if (!response.ok) {
-      throw Error(
-        data?.error || "Something went wrong"
-      );
+  async function loadProducts() {
+    try {
+      const result = await api("/products");
+      setProducts(result.products || []);
+    } catch (e) {
+      Alert.alert("HØmy", e.message);
     }
+  }
 
-    return data;
+  async function loadOrders() {
+    try {
+      const result = await api("/orders/mine");
+      setOrders(result.orders || []);
+    } catch (e) {
+      Alert.alert("Orders", e.message);
+    }
   }
 
   useEffect(() => {
-    (async () => {
-      try {
-        const saved =
-          await AsyncStorage.getItem(
-            "homy-session"
-          );
-
-        if (saved) {
-          const session = JSON.parse(saved);
-
-          setToken(session.token);
-          setUser(session.user);
-        }
-
-        const response = await fetch(
-          API + "/products"
-        );
-
-        setProducts(await response.json());
-      } catch (e) {
-        Alert.alert(
-          "Connection issue",
-          "Check that HØmy API is running and EXPO_PUBLIC_API_URL points to it."
-        );
-      } finally {
-        setLoading(false);
+    loadProducts();
+    AsyncStorage.getItem("homy-token").then(async saved => {
+      if (saved) {
+        setToken(saved);
       }
-    })();
+    });
   }, []);
 
-  const cartItems = useMemo(
-    () =>
-      Object.entries(cart)
-        .map(([id, quantity]) => ({
-          product: products.find(
-            (p) => p.id === id
-          ),
-          quantity
-        }))
-        .filter((x) => x.product),
-    [cart, products]
-  );
+  useEffect(() => {
+    if (token) {
+      api("/auth/me")
+        .then(r => setUser(r.user))
+        .then(loadOrders)
+        .catch(() => logout());
+    }
+  }, [token]);
 
-  const subtotal = cartItems.reduce(
-    (sum, item) =>
-      sum +
-      item.product.pricePaise *
-        item.quantity,
-    0
-  );
-
-  const delivery =
-    subtotal >= 49900 ? 0 : 3900;
-
-  function add(product) {
-    setCart((current) => ({
-      ...current,
-      [product.id]:
-        (current[product.id] || 0) + 1
-    }));
-  }
-
-  function remove(product) {
-    setCart((current) => {
-      const next = { ...current };
-
-      if (next[product.id] <= 1) {
-        delete next[product.id];
-      } else {
-        next[product.id]--;
-      }
-
-      return next;
-    });
-  }
-
-  async function login() {
+  async function authenticate() {
+    setBusy(true);
     try {
-      const data = await api(
-        "/auth/login",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            email,
-            password
-          })
-        }
-      );
+      const path = register ? "/auth/register" : "/auth/login";
+      const body = register
+        ? { name, email, phone, password }
+        : { email, password };
 
-      setToken(data.token);
-      setUser(data.user);
+      const result = await api(path, {
+        method: "POST",
+        body: JSON.stringify(body)
+      });
 
-      await AsyncStorage.setItem(
-        "homy-session",
-        JSON.stringify(data)
-      );
-
-      setPage("home");
+      await AsyncStorage.setItem("homy-token", result.token);
+      setToken(result.token);
+      setUser(result.user);
+      setScreen("home");
     } catch (e) {
-      Alert.alert(
-        "Sign in failed",
-        e.message
-      );
+      Alert.alert("Sign in", e.message);
+    } finally {
+      setBusy(false);
     }
   }
 
-  async function register() {
+  async function logout() {
+    await AsyncStorage.removeItem("homy-token");
+    setToken("");
+    setUser(null);
+    setScreen("home");
+  }
+
+  function add(id) {
+    setCart(old => ({ ...old, [id]: (old[id] || 0) + 1 }));
+  }
+
+  function remove(id) {
+    setCart(old => ({ ...old, [id]: Math.max(0, (old[id] || 0) - 1) }));
+  }
+
+  const items = Object.entries(cart).filter(([, quantity]) => quantity > 0);
+  const subtotal = items.reduce((sum, [id, quantity]) => {
+    const p = products.find(x => x.id === id);
+    return sum + (p ? p.pricePaise * quantity : 0);
+  }, 0);
+
+  async function getLocation() {
     try {
-      const data = await api(
-        "/auth/register",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            name,
-            email,
-            password
-          })
-        }
-      );
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== "granted") {
+        Alert.alert("Location permission", "Please allow location or enter your address manually.");
+        return;
+      }
 
-      setToken(data.token);
-      setUser(data.user);
+      const result = await Location.getCurrentPositionAsync({});
+      const coords = {
+        latitude: result.coords.latitude,
+        longitude: result.coords.longitude
+      };
 
-      await AsyncStorage.setItem(
-        "homy-session",
-        JSON.stringify(data)
-      );
+      setLocation(coords);
 
-      setPage("home");
-    } catch (e) {
-      Alert.alert(
-        "Could not create account",
-        e.message
-      );
+      const places = await Location.reverseGeocodeAsync(coords);
+      if (places.length) {
+        const p = places[0];
+        setAddress([
+          p.name, p.street, p.district, p.city, p.region, p.postalCode
+        ].filter(Boolean).join(", "));
+      }
+    } catch {
+      Alert.alert("Location", "Could not retrieve your location.");
     }
   }
 
   async function checkout() {
     if (!token) {
-      setPage("account");
-
-      Alert.alert(
-        "Sign in required",
-        "Create an account or sign in to place your order."
-      );
-
+      setScreen("account");
       return;
     }
-
-    if (address.trim().length < 8) {
-      Alert.alert(
-        "Delivery address",
-        "Enter your complete delivery address."
-      );
-
+    if (!address.trim()) {
+      Alert.alert("Address required", "Please enter your delivery address.");
       return;
     }
+    if (!items.length) return;
 
+    setBusy(true);
     try {
-      const order = await api(
-        "/orders",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            address,
-            paymentMethod: "COD",
-            items: cartItems.map((item) => ({
-              productId: item.product.id,
-              quantity: item.quantity
-            }))
-          })
-        }
-      );
+      await api("/orders", {
+        method: "POST",
+        body: JSON.stringify({
+          address,
+          latitude: location?.latitude,
+          longitude: location?.longitude,
+          paymentMethod: "COD",
+          items: items.map(([productId, quantity]) => ({
+            productId, quantity
+          }))
+        })
+      });
 
       setCart({});
-
-      Alert.alert(
-        "Order placed",
-        `Order ${order.orderNumber} is confirmed. Pay cash on delivery.`
-      );
-
-      setPage("orders");
-    } catch (e) {
-      Alert.alert(
-        "Checkout failed",
-        e.message
-      );
-    }
-  }
-
-  async function loadOrders() {
-    if (!token) {
-      setPage("account");
-      return;
-    }
-
-    try {
-      setOrders(
-        await api("/orders/mine")
-      );
-
-      setPage("orders");
-    } catch (e) {
-      Alert.alert(
-        "Orders unavailable",
-        e.message
-      );
-    }
-  }
-
-  async function cancel(id) {
-    try {
-      await api(
-        `/orders/${id}/cancel`,
-        {
-          method: "POST"
-        }
-      );
-
       await loadOrders();
+      setScreen("orders");
+      Alert.alert("Order placed", "Your HØmy order has been placed successfully.");
     } catch (e) {
-      Alert.alert(
-        "Cancellation unavailable",
-        e.message
-      );
+      Alert.alert("Checkout", e.message);
+    } finally {
+      setBusy(false);
     }
   }
 
-  function signout() {
-    setToken("");
-    setUser(null);
-
-    AsyncStorage.removeItem(
-      "homy-session"
-    );
-
-    setPage("home");
+  function money(value) {
+    return `₹${(Number(value || 0) / 100).toFixed(2)}`;
   }
 
-  function button(
-    label,
-    onPress,
-    style = {}
-  ) {
-    return (
-      <TouchableOpacity
-        onPress={onPress}
-        style={[
-          {
-            backgroundColor: green,
-            padding: 14,
-            borderRadius: 14,
-            alignItems: "center"
-          },
-          style
-        ]}
-      >
-        <Text
-          style={{
-            color: "white",
-            fontWeight: "800"
-          }}
-        >
-          {label}
-        </Text>
-      </TouchableOpacity>
-    );
-  }
+  const shown = products.filter(p => filter === "ALL" || p.type === filter);
 
-  function nav(label, target) {
-    return (
-      <TouchableOpacity
-        onPress={() =>
-          target === "orders"
-            ? loadOrders()
-            : setPage(target)
-        }
-        style={{
-          paddingVertical: 9,
-          paddingHorizontal: 12
-        }}
-      >
-        <Text
-          style={{
-            color:
-              page === target
-                ? green
-                : "#849084",
-            fontWeight: "700"
-          }}
-        >
-          {label}
-        </Text>
-      </TouchableOpacity>
-    );
-  }
+  const button = (label, onPress, secondary = false) => (
+    <TouchableOpacity
+      activeOpacity={0.8}
+      onPress={onPress}
+      style={[styles.button, secondary && styles.secondary]}
+    >
+      <Text style={[styles.buttonText, secondary && styles.secondaryText]}>{label}</Text>
+    </TouchableOpacity>
+  );
 
-  if (loading) {
+  if (screen === "account") {
     return (
-      <SafeAreaView
-        style={{
-          flex: 1,
-          justifyContent: "center",
-          backgroundColor: cream
-        }}
-      >
-        <ActivityIndicator
-          size="large"
-          color={green}
-        />
-      </SafeAreaView>
+      <ScrollView contentContainerStyle={styles.auth}>
+        <Text style={styles.logo}>HØmy</Text>
+        <Text style={styles.heading}>{register ? "Create account" : "Welcome back"}</Text>
+
+        {register && <>
+          <TextInput style={styles.input} placeholder="Full name" value={name} onChangeText={setName} />
+          <TextInput style={styles.input} placeholder="Phone number" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
+        </>}
+
+        <TextInput style={styles.input} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
+        <TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry />
+
+        {button(busy ? "Please wait..." : register ? "Register" : "Sign in", authenticate)}
+        {button(register ? "Already have an account? Sign in" : "Create a new account", () => setRegister(!register), true)}
+        {button("Back", () => setScreen("home"), true)}
+      </ScrollView>
     );
   }
 
   return (
-    <SafeAreaView
-      style={{
-        flex: 1,
-        backgroundColor: cream
-      }}
-    >
-      <StatusBar barStyle="dark-content" />
-
-      <View
-        style={{
-          paddingHorizontal: 20,
-          paddingTop: 10,
-          paddingBottom: 8,
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between"
-        }}
-      >
-        <Text
-          style={{
-            fontSize: 29,
-            fontWeight: "900",
-            letterSpacing: -1.5,
-            color: green
-          }}
-        >
-          hØmy
-          <Text
-            style={{
-              color: "#91ad66"
-            }}
-          >
-            .
-          </Text>
-        </Text>
-
-        <TouchableOpacity
-          onPress={() => setPage("cart")}
-          style={{
-            backgroundColor: "#e8eddf",
-            padding: 11,
-            borderRadius: 15
-          }}
-        >
-          <Text
-            style={{
-              color: green,
-              fontWeight: "800"
-            }}
-          >
-            Bag ·{" "}
-            {Object.values(cart).reduce(
-              (sum, quantity) =>
-                sum + quantity,
-              0
-            )}
-          </Text>
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.logo}>HØmy</Text>
+        <TouchableOpacity onPress={() => setScreen("account")}>
+          <Text style={styles.headerLink}>{user ? user.name : "Sign in"}</Text>
         </TouchableOpacity>
       </View>
 
-      <View
-        style={{
-          flexDirection: "row",
-          paddingHorizontal: 10,
-          justifyContent: "space-around",
-          borderBottomWidth: 1,
-          borderBottomColor: "#e5e9de"
-        }}
-      >
-        {nav("Discover", "home")}
-        {nav("My orders", "orders")}
-        {nav(
-          user
-            ? user.name.split(" ")[0]
-            : "Account",
-          "account"
-        )}
+      <View style={styles.navigation}>
+        {["home", "cart", "orders"].map(s => (
+          <TouchableOpacity key={s} onPress={() => setScreen(s)}>
+            <Text style={styles.navText}>{s === "home" ? "Explore" : s === "cart" ? `Cart (${items.length})` : "Orders"}</Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
-      {page === "home" && (
-        <ScrollView
-          contentContainerStyle={{
-            padding: 20,
-            paddingBottom: 40
-          }}
-        >
-          <View
-            style={{
-              backgroundColor: "#dfe9cf",
-              borderRadius: 24,
-              padding: 22,
-              marginBottom: 22
-            }}
-          >
-            <Text
-              style={{
-                color: "#667b53",
-                fontSize: 11,
-                fontWeight: "900",
-                letterSpacing: 2
-              }}
-            >
-              GOOD FOOD, MADE SIMPLE
-            </Text>
-
-            <Text
-              style={{
-                fontSize: 31,
-                fontWeight: "900",
-                color: green,
-                letterSpacing: -1,
-                marginTop: 9
-              }}
-            >
-              Your kitchen,
-              {"\n"}
-              with a little help.
-            </Text>
-
-            <Text
-              style={{
-                color: "#5f7254",
-                marginTop: 8,
-                lineHeight: 21
-              }}
-            >
-              Fresh ingredients. Chef-crafted
-              recipes. A delicious dinner,
-              without the guesswork.
-            </Text>
-
-            <View
-              style={{
-                alignSelf: "flex-start",
-                marginTop: 14,
-                backgroundColor: green,
-                borderRadius: 20,
-                paddingHorizontal: 12,
-                paddingVertical: 7
-              }}
-            >
-              <Text
-                style={{
-                  color: "white",
-                  fontWeight: "800"
-                }}
-              >
-                From ₹219 · 20 min
-              </Text>
-            </View>
+      {screen === "home" && (
+        <ScrollView contentContainerStyle={styles.content}>
+          <View style={styles.hero}>
+            <Text style={styles.eyebrow}>A LITTLE HOME IN EVERY MEAL</Text>
+            <Text style={styles.heroTitle}>South Indian flavours, made simple.</Text>
+            <Text style={styles.muted}>Fresh meal kits delivered to your home.</Text>
           </View>
 
-          <View
-            style={{
-              flexDirection: "row",
-              gap: 9,
-              marginBottom: 17
-            }}
-          >
-            {["ALL", "VEG", "NON_VEG"].map(
-              (type) => (
-                <TouchableOpacity
-                  key={type}
-                  onPress={() =>
-                    setFilter(type)
-                  }
-                  style={{
-                    backgroundColor:
-                      filter === type
-                        ? green
-                        : "#fff",
-                    paddingHorizontal: 17,
-                    paddingVertical: 10,
-                    borderRadius: 30
-                  }}
-                >
-                  <Text
-                    style={{
-                      color:
-                        filter === type
-                          ? "white"
-                          : green,
-                      fontWeight: "800",
-                      fontSize: 12
-                    }}
-                  >
-                    {type === "NON_VEG"
-                      ? "NON-VEG"
-                      : type === "ALL"
-                      ? "All kits"
-                      : "Veg"}
-                  </Text>
-                </TouchableOpacity>
-              )
-            )}
+          <View style={styles.filters}>
+            {["ALL", "VEG", "NON_VEG"].map(f => (
+              <TouchableOpacity key={f} onPress={() => setFilter(f)}>
+                <Text style={[styles.filter, filter === f && styles.filterActive]}>
+                  {f === "ALL" ? "All" : f === "VEG" ? "Veg" : "Non-veg"}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
 
-          <Text
-            style={{
-              fontSize: 23,
-              fontWeight: "900",
-              color: green,
-              marginBottom: 15
-            }}
-          >
-            The weeknight favourites
-          </Text>
-
-          {products
-            .filter(
-              (product) =>
-                filter === "ALL" ||
-                product.type === filter
-            )
-            .map((product) => (
-              <View
-                key={product.id}
-                style={{
-                  backgroundColor: "white",
-                  borderRadius: 20,
-                  overflow: "hidden",
-                  marginBottom: 15,
-                  borderWidth: 1,
-                  borderColor: "#ebeee5"
-                }}
-              >
-                <Image
-                  source={{
-                    uri: product.imageUrl
-                  }}
-                  style={{
-                    height: 175,
-                    backgroundColor: "#e7e9df"
-                  }}
-                />
-
-                <View
-                  style={{
-                    padding: 16
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: "#83916e",
-                      fontSize: 10,
-                      fontWeight: "900",
-                      letterSpacing: 1.4
-                    }}
-                  >
-                    {product.type === "VEG"
-                      ? "PLANT-LOVING"
-                      : "MEAT & SEAFOOD"}
-                    {" · "}
-                    {product.prepMinutes} MIN
-                  </Text>
-
-                  <Text
-                    style={{
-                      fontSize: 19,
-                      fontWeight: "900",
-                      color: green,
-                      marginTop: 6
-                    }}
-                  >
-                    {product.name}
-                  </Text>
-
-                  <Text
-                    style={{
-                      color: "#7a887b",
-                      lineHeight: 19,
-                      marginTop: 5
-                    }}
-                  >
-                    {product.description}
-                  </Text>
-
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      marginTop: 14
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontSize: 19,
-                        fontWeight: "900",
-                        color: green
-                      }}
-                    >
-                      {money(
-                        product.pricePaise
-                      )}
-
-                      <Text
-                        style={{
-                          fontSize: 11,
-                          color: "#7c8c7c"
-                        }}
-                      >
-                        {" · "}
-                        {product.servings} servings
-                      </Text>
-                    </Text>
-
-                    {button(
-                      cart[product.id]
-                        ? `Add more (${cart[product.id]})`
-                        : "Add kit",
-                      () => add(product),
-                      {
-                        paddingHorizontal: 20
-                      }
-                    )}
-                  </View>
+          {shown.map(p => (
+            <View style={styles.product} key={p.id}>
+              <TouchableOpacity onPress={() => { setSelected(p); setScreen("detail"); }}>
+                <Image source={{ uri: p.imageUrl }} style={styles.productImage} />
+              </TouchableOpacity>
+              <View style={styles.productInfo}>
+                <Text style={styles.foodType}>{p.type === "VEG" ? "VEGETARIAN" : "NON-VEGETARIAN"}</Text>
+                <Text style={styles.productName}>{p.name}</Text>
+                <Text style={styles.muted}>{p.description}</Text>
+                <View style={styles.productBottom}>
+                  <Text style={styles.price}>{money(p.pricePaise)}</Text>
+                  <TouchableOpacity style={styles.smallButton} onPress={() => add(p.id)}>
+                    <Text style={styles.buttonText}>Add +</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
-            ))}
-        </ScrollView>
-      )}
-
-      {page === "cart" && (
-        <ScrollView
-          contentContainerStyle={{
-            padding: 20
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 28,
-              fontWeight: "900",
-              color: green,
-              marginBottom: 20
-            }}
-          >
-            Your bag
-          </Text>
-
-          {cartItems.map((item) => (
-            <View
-              key={item.product.id}
-              style={{
-                backgroundColor: "white",
-                padding: 15,
-                borderRadius: 17,
-                marginBottom: 12,
-                flexDirection: "row",
-                justifyContent: "space-between"
-              }}
-            >
-              <View
-                style={{
-                  flex: 1
-                }}
-              >
-                <Text
-                  style={{
-                    fontWeight: "800",
-                    color: green
-                  }}
-                >
-                  {item.product.name}
-                </Text>
-
-                <Text
-                  style={{
-                    color: "#7d8a7b",
-                    marginTop: 5
-                  }}
-                >
-                  {money(
-                    item.product.pricePaise
-                  )}{" "}
-                  each
-                </Text>
-              </View>
-
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 12
-                }}
-              >
-                <TouchableOpacity
-                  onPress={() =>
-                    remove(item.product)
-                  }
-                >
-                  <Text
-                    style={{
-                      fontSize: 22,
-                      color: green
-                    }}
-                  >
-                    −
-                  </Text>
-                </TouchableOpacity>
-
-                <Text
-                  style={{
-                    fontWeight: "800"
-                  }}
-                >
-                  {item.quantity}
-                </Text>
-
-                <TouchableOpacity
-                  onPress={() =>
-                    add(item.product)
-                  }
-                >
-                  <Text
-                    style={{
-                      fontSize: 22,
-                      color: green
-                    }}
-                  >
-                    ＋
-                  </Text>
-                </TouchableOpacity>
-              </View>
             </View>
           ))}
-
-          {!cartItems.length && (
-            <Text
-              style={{
-                color: "#7b887c"
-              }}
-            >
-              Your bag is ready for something
-              delicious.
-            </Text>
-          )}
-
-          <View
-            style={{
-              backgroundColor: "white",
-              padding: 18,
-              borderRadius: 18,
-              marginTop: 10
-            }}
-          >
-            <Text
-              style={{
-                color: green
-              }}
-            >
-              Subtotal{"   "}
-              {money(subtotal)}
-            </Text>
-
-            <Text
-              style={{
-                color: green,
-                marginTop: 8
-              }}
-            >
-              Delivery{"   "}
-              {delivery
-                ? money(delivery)
-                : "FREE"}
-            </Text>
-
-            <Text
-              style={{
-                fontWeight: "900",
-                fontSize: 20,
-                color: green,
-                marginTop: 14
-              }}
-            >
-              Total{"   "}
-              {money(
-                subtotal + delivery
-              )}
-            </Text>
-
-            <TextInput
-              value={address}
-              onChangeText={setAddress}
-              placeholder="Full delivery address"
-              multiline
-              style={{
-                marginTop: 18,
-                borderWidth: 1,
-                borderColor: "#e4e8df",
-                borderRadius: 12,
-                padding: 13,
-                minHeight: 75,
-                textAlignVertical: "top"
-              }}
-            />
-
-            <Text
-              style={{
-                fontSize: 11,
-                color: "#879387",
-                marginVertical: 12
-              }}
-            >
-              Cash on delivery · Free delivery
-              over ₹499
-            </Text>
-
-            {button(
-              "Place order",
-              checkout,
-              {
-                marginTop: 3
-              }
-            )}
-          </View>
+          {!shown.length && <Text style={styles.muted}>No meal kits are listed yet.</Text>}
         </ScrollView>
       )}
 
-      {page === "account" && (
-        <ScrollView
-          contentContainerStyle={{
-            padding: 22
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 28,
-              fontWeight: "900",
-              color: green,
-              marginBottom: 8
-            }}
-          >
-            {user
-              ? "Your account"
-              : "Welcome to HØmy"}
-          </Text>
-
-          {user ? (
-            <>
-              <Text
-                style={{
-                  color: "#7a897c",
-                  marginBottom: 18
-                }}
-              >
-                {user.name} · {user.email}
-              </Text>
-
-              {button(
-                "Sign out",
-                signout
-              )}
-            </>
-          ) : (
-            <>
-              <Text
-                style={{
-                  color: "#7a897c",
-                  marginBottom: 18
-                }}
-              >
-                Sign in to check out and keep
-                track of your meals.
-              </Text>
-
-              <TextInput
-                value={name}
-                onChangeText={setName}
-                placeholder="Your name (for new account)"
-                style={field}
-              />
-
-              <TextInput
-                value={email}
-                onChangeText={setEmail}
-                placeholder="Email address"
-                autoCapitalize="none"
-                keyboardType="email-address"
-                style={field}
-              />
-
-              <TextInput
-                value={password}
-                onChangeText={setPassword}
-                placeholder="Password (8+ characters)"
-                secureTextEntry
-                style={field}
-              />
-
-              {button(
-                "Create account",
-                register,
-                {
-                  marginTop: 8
-                }
-              )}
-
-              {button(
-                "Sign in",
-                login,
-                {
-                  marginTop: 10,
-                  backgroundColor: "#73866d"
-                }
-              )}
-            </>
-          )}
-        </ScrollView>
-      )}
-
-      {page === "orders" && (
-        <ScrollView
-          contentContainerStyle={{
-            padding: 20
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 28,
-              fontWeight: "900",
-              color: green,
-              marginBottom: 18
-            }}
-          >
-            Your orders
-          </Text>
-
-          {orders.map((order) => (
-            <View
-              key={order.id}
-              style={{
-                backgroundColor: "white",
-                padding: 17,
-                borderRadius: 18,
-                marginBottom: 12
-              }}
-            >
-              <Text
-                style={{
-                  fontWeight: "900",
-                  color: green
-                }}
-              >
-                {order.orderNumber}
-              </Text>
-
-              <Text
-                style={{
-                  color: "#819081",
-                  marginTop: 5
-                }}
-              >
-                {new Date(
-                  order.createdAt
-                ).toLocaleString()}
-              </Text>
-
-              <Text
-                style={{
-                  fontWeight: "800",
-                  marginTop: 10
-                }}
-              >
-                {order.status.replaceAll(
-                  "_",
-                  " "
-                )}
-                {" · "}
-                {money(order.totalPaise)}
-              </Text>
-
-              {order.items.map((item) => (
-                <Text
-                  key={item.id}
-                  style={{
-                    color: "#718071",
-                    marginTop: 4
-                  }}
-                >
-                  {item.quantity} ×{" "}
-                  {item.productName}
-                </Text>
-              ))}
-
-              {[
-                "PLACED",
-                "CONFIRMED"
-              ].includes(order.status) && (
-                <TouchableOpacity
-                  onPress={() =>
-                    cancel(order.id)
-                  }
-                  style={{
-                    marginTop: 12,
-                    alignSelf: "flex-start"
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: "#a64b3d",
-                      fontWeight: "800"
-                    }}
-                  >
-                    Cancel order
-                  </Text>
-                </TouchableOpacity>
-              )}
+      {screen === "detail" && selected && (
+        <ScrollView contentContainerStyle={styles.content}>
+          <Image source={{ uri: selected.imageUrl }} style={styles.detailImage} />
+          <Text style={styles.heading}>{selected.name}</Text>
+          <Text style={styles.muted}>{selected.description}</Text>
+          <Text style={styles.price}>{money(selected.pricePaise)}</Text>
+          <Text style={styles.subheading}>Inside the kit</Text>
+          {(selected.images || []).map(img => (
+            <Image key={img.id} source={{ uri: img.imageUrl }} style={styles.slideImage} />
+          ))}
+          {(selected.ingredients || []).map(item => (
+            <View style={styles.ingredient} key={item.id}>
+              <Text>{item.name}</Text>
+              <Text style={styles.muted}>{item.quantity}</Text>
             </View>
           ))}
-
-          {!orders.length && (
-            <Text
-              style={{
-                color: "#7c897d"
-              }}
-            >
-              No orders yet. Your next
-              favourite meal is waiting.
-            </Text>
-          )}
+          {button("Add to cart", () => { add(selected.id); setScreen("cart"); })}
+          {button("Back to meals", () => setScreen("home"), true)}
         </ScrollView>
       )}
-    </SafeAreaView>
+
+      {screen === "cart" && (
+        <ScrollView contentContainerStyle={styles.content}>
+          <Text style={styles.heading}>Your cart</Text>
+          {items.map(([id, quantity]) => {
+            const p = products.find(x => x.id === id);
+            if (!p) return null;
+            return (
+              <View key={id} style={styles.cartRow}>
+                <Image source={{ uri: p.imageUrl }} style={styles.cartImage} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.productName}>{p.name}</Text>
+                  <Text>{money(p.pricePaise)}</Text>
+                </View>
+                <TouchableOpacity onPress={() => remove(id)}><Text style={styles.quantity}>−</Text></TouchableOpacity>
+                <Text>{quantity}</Text>
+                <TouchableOpacity onPress={() => add(id)}><Text style={styles.quantity}>+</Text></TouchableOpacity>
+              </View>
+            );
+          })}
+          <Text style={styles.heading}>Subtotal: {money(subtotal)}</Text>
+          <Text style={styles.muted}>Delivery: {subtotal >= 49900 ? "Free" : "₹39.00"}</Text>
+          {button("Continue", () => setScreen("checkout"))}
+        </ScrollView>
+      )}
+
+      {screen === "checkout" && (
+        <ScrollView contentContainerStyle={styles.content}>
+          <Text style={styles.heading}>Delivery address</Text>
+          <TextInput
+            style={[styles.input, styles.addressInput]}
+            placeholder="House, street, area, city, PIN code"
+            multiline
+            value={address}
+            onChangeText={setAddress}
+          />
+          {button("Use current location", getLocation, true)}
+          <Text style={styles.subheading}>Payment</Text>
+          <Text style={styles.muted}>Cash on delivery</Text>
+          <Text style={styles.heading}>Total: {money(subtotal + (subtotal >= 49900 ? 0 : 3900))}</Text>
+          {button(busy ? "Placing order..." : "Place order", checkout)}
+        </ScrollView>
+      )}
+
+      {screen === "orders" && (
+        <ScrollView contentContainerStyle={styles.content}>
+          <Text style={styles.heading}>Your orders</Text>
+          {!token && button("Sign in to view orders", () => setScreen("account"))}
+          {orders.map(o => (
+            <View style={styles.order} key={o.id}>
+              <Text style={styles.productName}>{o.orderNumber}</Text>
+              <Text style={styles.foodType}>{o.status.replaceAll("_", " ")}</Text>
+              <Text>{money(o.totalPaise)} · {o.paymentMethod}</Text>
+              <Text style={styles.muted}>{o.address}</Text>
+              {["PLACED", "CONFIRMED"].includes(o.status) && button("Cancel order", async () => {
+                try {
+                  await api(`/orders/${o.id}/cancel`, { method: "POST" });
+                  await loadOrders();
+                } catch (e) {
+                  Alert.alert("Cancel order", e.message);
+                }
+              }, true)}
+            </View>
+          ))}
+        </ScrollView>
+      )}
+
+      {user && button("Sign out", logout, true)}
+    </View>
   );
 }
 
-const field = {
-  backgroundColor: "white",
-  borderWidth: 1,
-  borderColor: "#e5e9df",
-  borderRadius: 12,
-  padding: 14,
-  marginBottom: 12
-};
-  
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#f5f6ed" },
+  header: { padding: 18, paddingTop: 48, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  logo: { fontSize: 32, fontWeight: "900", color: "#536c48", letterSpacing: -2 },
+  headerLink: { color: "#536c48", fontWeight: "700" },
+  navigation: { flexDirection: "row", justifyContent: "space-around", padding: 12, backgroundColor: "#e9efdc" },
+  navText: { color: "#40533b", fontWeight: "700" },
+  content: { padding: 17, paddingBottom: 40 },
+  hero: { backgroundColor: "#e9efdc", padding: 24, borderRadius: 22, marginBottom: 20 },
+  eyebrow: { color: "#819072", fontSize: 10, letterSpacing: 2, fontWeight: "800" },
+  heroTitle: { fontSize: 34, fontWeight: "900", color: "#293c2d", marginVertical: 12 },
+  heading: { fontSize: 25, fontWeight: "800", color: "#293c2d", marginVertical: 15 },
+  subheading: { fontSize: 18, fontWeight: "800", marginTop: 20, marginBottom: 10, color: "#293c2d" },
+  muted: { color: "#77816f", lineHeight: 20 },
+  filters: { flexDirection: "row", gap: 15, marginBottom: 15 },
+  filter: { padding: 10, borderRadius: 10, color: "#536c48", backgroundColor: "#e8eddf" },
+  filterActive: { backgroundColor: "#536c48", color: "white" },
+  product: { backgroundColor: "#fffef9", borderRadius: 17, overflow: "hidden", marginBottom: 18 },
+  productImage: { width: "100%", height: 220 },
+  productInfo: { padding: 16 },
+  foodType: { color: "#819072", fontSize: 10, fontWeight: "800", letterSpacing: 1 },
+  productName: { fontSize: 19, fontWeight: "800", color: "#293c2d", marginVertical: 5 },
+  productBottom: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 12 },
+  price: { fontSize: 19, fontWeight: "800", color: "#405b3b" },
+  smallButton: { backgroundColor: "#536c48", padding: 10, borderRadius: 10 },
+  button: { backgroundColor: "#536c48", padding: 15, borderRadius: 12, alignItems: "center", marginVertical: 8 },
+  buttonText: { color: "white", fontWeight: "800" },
+  secondary: { backgroundColor: "#e8eddf" },
+  secondaryText: { color: "#40533b" },
+  detailImage: { width: "100%", height: 260, borderRadius: 17 },
+  slideImage: { width: 160, height: 120, borderRadius: 12, marginVertical: 6 },
+  ingredient: { padding: 12, flexDirection: "row", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: "#e8ebdf" },
+  cartRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 12 },
+  cartImage: { width: 65, height: 60, borderRadius: 10 },
+  quantity: { fontSize: 24, color: "#536c48", paddingHorizontal: 5 },
+  order: { backgroundColor: "#fffef9", padding: 18, borderRadius: 14, marginVertical: 8 },
+  input: { backgroundColor: "#fffef9", borderWidth: 1, borderColor: "#dce2d2", padding: 14, borderRadius: 11, marginVertical: 8 },
+  addressInput: { minHeight: 100, textAlignVertical: "top" },
+  auth: { flexGrow: 1, justifyContent: "center", padding: 25, backgroundColor: "#f5f6ed" }
+});
