@@ -1,6 +1,11 @@
-node_modules
-dist
+node_modules/
+dist/
+.expo/
+.expo-shared/
 .env
-.expo
+.env.*
+!.env.example
 *.log
 .DS_Store
+coverage/
+apps/api/dist/
