@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "HØmy",
+    "slug": "homy-meal-kits",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#f6f6f0"
+    },
+    "android": {
+      "package": "com.homy.mealkits"
+    },
+    "ios": {
+      "bundleIdentifier": "com.homy.mealkits"
+    }
+  }
+}
