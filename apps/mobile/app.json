@@ -1,18 +1,26 @@
 {
   "expo": {
     "name": "HØmy",
-    "slug": "homy-meal-kits",
+    "slug": "homy",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "splash": {
-      "backgroundColor": "#f6f6f0"
-    },
+    "scheme": "homy",
     "android": {
-      "package": "com.homy.mealkits"
+      "package": "com.homy.customer",
+      "versionCode": 1,
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
     },
-    "ios": {
-      "bundleIdentifier": "com.homy.mealkits"
-    }
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow HØmy to use your location for delivery."
+        }
+      ]
+    ]
   }
 }
