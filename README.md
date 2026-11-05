@@ -1,52 +1,64 @@
-# HØmy — Full-stack meal-kit ordering app
+# HØmy
 
-A connected monorepo starter for a customer mobile app,
-admin dashboard, API, and PostgreSQL database.
+South Indian meal-kit ordering platform.
 
-## Stack
+## Applications
 
-- API: Node.js, Express, TypeScript, Prisma, PostgreSQL
-- Admin: React + Vite
-- Mobile: Expo + React Native
-- Authentication: JWT + bcrypt
-- Validation: Zod
+- `apps/api` — Express, Prisma and PostgreSQL backend
+- `apps/admin` — Kitchen administration dashboard
+- `apps/customer-web` — Customer ordering website
+- `apps/mobile` — Customer Android application
+- `apps/partner` — Delivery partner dashboard
 
-## Requirements
+## Backend
 
-Node.js 20+
-npm 10+
-PostgreSQL 15+
+Environment variables:
 
-## Setup
-
-1. Copy `.env.example` to `apps/api/.env`.
-2. Configure PostgreSQL and JWT_SECRET.
-3. Run `npm install`.
-4. Run `npm run db:generate`.
-5. Run `npm run db:migrate`.
-6. Run `npm run db:seed`.
-7. Run `npm run dev`.
-
-## API
-
-Default development API:
-
-http://localhost:4000/api
-
-For a physical phone, set EXPO_PUBLIC_API_URL to your
-computer's LAN IP instead of localhost.
-
-## Production setup
-
-Deploy the API and admin independently.
-
-Configure:
 - DATABASE_URL
 - JWT_SECRET
-- CORS_ORIGIN
-- EXPO_PUBLIC_API_URL
+- ADMIN_EMAIL
+- ADMIN_PASSWORD
+- ADMIN_NAME
+- UPI_ID (optional)
 
-Run database migrations before directing production traffic.
+Install dependencies:
 
-Online payments, hosting, app signing, monitoring, and
-production security testing require additional setup.
+    npm install
+
+Build the API:
+
+    npm run build:api
+
+The API listens on the Render-provided PORT.
+
+## Admin
+
+Build:
+
+    npm run build:admin
+
+Set VITE_API_URL to the API URL plus /api.
+
+## Customer website
+
+Build:
+
+    npm run build:customer
+
+Set VITE_API_URL to the API URL plus /api.
+
+## Partner dashboard
+
+Build:
+
+    npm run build:partner
+
+Set VITE_API_URL to the API URL plus /api.
+
+## Android customer application
+
+The Android application is built separately using Expo and EAS.
+
+## Security
+
+Never commit production passwords, database credentials or JWT secrets.
