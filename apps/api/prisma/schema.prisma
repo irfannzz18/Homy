@@ -10,6 +10,7 @@ datasource db {
 enum Role {
   CUSTOMER
   ADMIN
+  PARTNER
 }
 
 enum ProductType {
@@ -26,6 +27,12 @@ enum OrderStatus {
   CANCELLED
 }
 
+enum PartnerStatus {
+  PENDING
+  APPROVED
+  SUSPENDED
+}
+
 model User {
   id           String   @id @default(cuid())
   name         String
@@ -33,51 +40,153 @@ model User {
   phone        String?
   passwordHash String
   role         Role     @default(CUSTOMER)
+
   orders       Order[]
+  partner      DeliveryPartner?
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
 
 model Product {
-  id          String      @id @default(cuid())
-  name        String
-  description String
-  type        ProductType
-  pricePaise  Int
-  imageUrl    String
-  servings    Int         @default(2)
-  prepMinutes Int         @default(25)
-  isAvailable Boolean     @default(true)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  orderItems  OrderItem[]
+  id           String      @id @default(cuid())
+  name         String
+  description  String
+  category     String      @default("South Indian")
+  type         ProductType
+  pricePaise   Int
+  imageUrl     String
+  servings     Int         @default(2)
+  prepMinutes  Int         @default(25)
+
+  isAvailable  Boolean     @default(true)
+
+  ingredients  Ingredient[]
+  images       ProductImage[]
+  orderItems   OrderItem[]
+
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([isAvailable])
+  @@index([category])
+}
+
+model Ingredient {
+  id        String  @id @default(cuid())
+  name      String
+  quantity  String
+  imageUrl  String?
+  sortOrder Int     @default(0)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  imageUrl  String
+  sortOrder Int     @default(0)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
 }
 
 model Order {
-  id            String      @id @default(cuid())
-  orderNumber   String      @unique
-  userId        String
-  user          User        @relation(fields: [userId], references: [id])
-  status        OrderStatus @default(PLACED)
-  subtotalPaise Int
-  deliveryPaise Int
-  totalPaise    Int
-  paymentMethod String      @default("COD")
-  paymentStatus String      @default("PENDING")
-  address       String
-  customerNote  String?
-  items         OrderItem[]
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  id              String      @id @default(cuid())
+  orderNumber     String      @unique
+
+  userId          String
+  user            User        @relation(fields: [userId], references: [id])
+
+  status          OrderStatus @default(PLACED)
+
+  subtotalPaise   Int
+  deliveryPaise   Int
+  totalPaise      Int
+
+  paymentMethod   String      @default("COD")
+  paymentStatus   String      @default("PENDING")
+  paymentReference String?
+
+  address         String
+  latitude        Float?
+  longitude       Float?
+  customerNote    String?
+
+  assignedPartnerId String?
+  assignedPartner   DeliveryPartner? @relation(
+    fields: [assignedPartnerId],
+    references: [id],
+    onDelete: SetNull
+  )
+
+  items           OrderItem[]
+  tracking        OrderTracking[]
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([assignedPartnerId])
+  @@index([createdAt])
 }
 
 model OrderItem {
-  id             String  @id @default(cuid())
-  orderId        String
-  order          Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  productId      String
-  product        Product @relation(fields: [productId], references: [id])
-  productName    String
-  quantity       Int
+  id            String  @id @default(cuid())
+
+  orderId       String
+  order         Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  productId     String
+  product       Product @relation(fields: [productId], references: [id])
+
+  productName   String
+  quantity      Int
   unitPricePaise Int
+}
+
+model DeliveryPartner {
+  id             String        @id @default(cuid())
+
+  userId         String        @unique
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  status         PartnerStatus @default(PENDING)
+  vehicleType    String?
+  vehicleNumber  String?
+
+  latitude       Float?
+  longitude      Float?
+  lastLocationAt DateTime?
+
+  orders         Order[]
+  tracking       OrderTracking[]
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model OrderTracking {
+  id          String   @id @default(cuid())
+
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  partnerId   String?
+  partner     DeliveryPartner? @relation(fields: [partnerId], references: [id], onDelete: SetNull)
+
+  latitude    Float
+  longitude   Float
+
+  createdAt   DateTime @default(now())
+
+  @@index([orderId, createdAt])
 }
