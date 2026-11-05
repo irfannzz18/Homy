@@ -1,0 +1,19 @@
+{
+  "name": "homy-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/api",
+    "apps/admin",
+    "apps/mobile"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,admin -c blue,green \"npm run dev -w apps/api\" \"npm run dev -w apps/admin\"",
+    "db:generate": "npm run prisma:generate -w apps/api",
+    "db:migrate": "npm run prisma:migrate -w apps/api",
+    "db:seed": "npm run prisma:seed -w apps/api",
+    "build": "npm run build -w apps/api && npm run build -w apps/admin"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
