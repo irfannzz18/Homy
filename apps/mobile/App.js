@@ -23,7 +23,7 @@ import AsyncStorage from
 
 const API =
   process.env.EXPO_PUBLIC_API_URL ||
-  "http://localhost:4000/api";
+  "https://homy-b5e6.onrender.com/api";
 
 const green = "#183b2b";
 const cream = "#f6f6f0";
