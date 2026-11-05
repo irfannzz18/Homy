@@ -1,3 +1,4 @@
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -99,39 +100,35 @@ model ProductImage {
 }
 
 model Order {
-  id              String      @id @default(cuid())
-  orderNumber     String      @unique
+  id               String      @id @default(cuid())
+  orderNumber      String      @unique
 
-  userId          String
-  user            User        @relation(fields: [userId], references: [id])
+  userId           String
+  user             User        @relation(fields: [userId], references: [id])
 
-  status          OrderStatus @default(PLACED)
+  status           OrderStatus @default(PLACED)
 
-  subtotalPaise   Int
-  deliveryPaise   Int
-  totalPaise      Int
+  subtotalPaise    Int
+  deliveryPaise    Int
+  totalPaise       Int
 
-  paymentMethod   String      @default("COD")
-  paymentStatus   String      @default("PENDING")
+  paymentMethod    String      @default("COD")
+  paymentStatus    String      @default("PENDING")
   paymentReference String?
 
-  address         String
-  latitude        Float?
-  longitude       Float?
-  customerNote    String?
+  address          String
+  latitude         Float?
+  longitude        Float?
+  customerNote     String?
 
   assignedPartnerId String?
-  assignedPartner   DeliveryPartner? @relation(
-    fields: [assignedPartnerId],
-    references: [id],
-    onDelete: SetNull
-  )
+  assignedPartner   DeliveryPartner? @relation(fields: [assignedPartnerId], references: [id], onDelete: SetNull)
 
-  items           OrderItem[]
-  tracking        OrderTracking[]
+  items             OrderItem[]
+  tracking          OrderTracking[]
 
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
 
   @@index([userId])
   @@index([status])
@@ -140,16 +137,16 @@ model Order {
 }
 
 model OrderItem {
-  id            String  @id @default(cuid())
+  id             String  @id @default(cuid())
 
-  orderId       String
-  order         Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId        String
+  order          Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
-  productId     String
-  product       Product @relation(fields: [productId], references: [id])
+  productId      String
+  product        Product @relation(fields: [productId], references: [id])
 
-  productName   String
-  quantity      Int
+  productName    String
+  quantity       Int
   unitPricePaise Int
 }
 
