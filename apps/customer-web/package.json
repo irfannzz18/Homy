@@ -1,6 +1,6 @@
 {
-  "name": "homy-customer-web",
-  "version": "1.0.0",
+  "name": "@homy/customer-web",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,11 +10,10 @@
   },
   "dependencies": {
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "lucide-react": "^0.468.0"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^6.0.5"
+    "vite": "^6.0.7"
   }
 }
