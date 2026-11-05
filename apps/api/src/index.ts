@@ -113,6 +113,7 @@ const asyncRoute = (
   ) =>
     Promise.resolve(fn(req, res)).catch(next);
 
+// Health check
 app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,
@@ -251,7 +252,7 @@ app.get(
   asyncRoute(async (req, res) => {
     const product = await prisma.product.findUnique({
       where: {
-        id: req.params.id
+        id: String(req.params.id)
       }
     });
 
@@ -313,7 +314,7 @@ app.patch(
     return res.json(
       await prisma.product.update({
         where: {
-          id: req.params.id
+          id: String(req.params.id)
         },
         data: product
       })
@@ -329,7 +330,7 @@ app.delete(
   asyncRoute(async (req, res) => {
     await prisma.product.update({
       where: {
-        id: req.params.id
+        id: String(req.params.id)
       },
       data: {
         isAvailable: false
@@ -468,7 +469,7 @@ app.post(
   asyncRoute(async (req, res) => {
     const order = await prisma.order.findFirst({
       where: {
-        id: req.params.id,
+        id: String(req.params.id),
         userId: req.auth!.id
       }
     });
@@ -541,7 +542,7 @@ app.patch(
 
     const order = await prisma.order.findUnique({
       where: {
-        id: req.params.id
+        id: String(req.params.id)
       }
     });
 
