@@ -1,30 +1,77 @@
-# Production release checklist
+# HØmy Deployment Checklist
 
-- [ ] Provision managed PostgreSQL.
-- [ ] Configure database backups and retention.
-- [ ] Set a unique 32+ character JWT secret.
-- [ ] Configure API CORS to the exact admin domain.
-- [ ] Run Prisma migration deploy during release.
-- [ ] Create admin credentials privately.
-- [ ] Rotate the seed admin password.
-- [ ] Add rate limiting.
-- [ ] Add request logging and error monitoring.
-- [ ] Perform a security review.
-- [ ] Integrate a payment gateway with signed webhook verification.
-- [ ] Implement provider refunds before offering online payment.
-- [ ] Confirm cancellation/refund policy with the business owner.
-- [ ] Configure delivery coverage and delivery charges.
-- [ ] Configure taxes, inventory, support contact, privacy policy,
-      and terms.
-- [ ] Test Android on physical devices using the public API URL.
-- [ ] Test registration and duplicate email handling.
-- [ ] Test login and unauthorized API calls.
-- [ ] Test product availability and checkout totals.
-- [ ] Test order ownership and cancellation transitions.
-- [ ] Test admin status transitions.
-- [ ] Test network failure states.
-- [ ] Configure EAS credentials.
-- [ ] Generate signed APK/AAB.
-- [ ] Validate accessibility and performance.
-- [ ] Test database backup restoration.
-- [ ] Configure production monitoring.
+## 1. PostgreSQL
+
+Create or use a PostgreSQL database on Render.
+
+Set DATABASE_URL in the API service.
+
+## 2. API service
+
+Render service:
+
+- Name: homy-api
+- Root directory: apps/api
+- Build command: npm install && npx prisma generate && npx prisma db push && npm run build
+- Start command: npm start
+
+Environment variables:
+
+- DATABASE_URL
+- JWT_SECRET
+- ADMIN_NAME
+- ADMIN_EMAIL
+- ADMIN_PASSWORD
+- PORT (Render supplies this)
+
+Generate a long random JWT_SECRET.
+Use a unique admin password of at least 12 characters.
+
+## 3. Admin website
+
+- Root directory: apps/admin
+- Build command: npm install && npm run build
+- Publish directory: dist
+- VITE_API_URL: https://YOUR-API.onrender.com/api
+
+## 4. Customer website
+
+- Root directory: apps/customer-web
+- Build command: npm install && npm run build
+- Publish directory: dist
+- VITE_API_URL: https://YOUR-API.onrender.com/api
+
+## 5. Partner dashboard
+
+- Root directory: apps/partner
+- Build command: npm install && npm run build
+- Publish directory: dist
+- VITE_API_URL: https://YOUR-API.onrender.com/api
+
+## 6. Admin account
+
+After the API is deployed and the database is ready, run the seed script
+once in an environment with the production database connection:
+
+    npm run prisma:seed --workspace=@homy/api
+
+## 7. Android app
+
+From apps/mobile, install dependencies and build the Android APK with EAS.
+
+## 8. Test before launch
+
+- API health endpoint
+- Admin sign-in
+- Customer registration and sign-in
+- Product create and hide/list
+- Cart calculations
+- COD order placement
+- Order status updates
+- Partner account sign-in
+- Partner assignment
+- Location permission and GPS update
+- Customer order history
+
+Do not advertise UPI as available until a real payment provider and
+payment verification workflow are configured.
