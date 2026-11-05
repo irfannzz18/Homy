@@ -1,664 +1,739 @@
 import "dotenv/config";
-
-import express, {
-  Request,
-  Response,
-  NextFunction
-} from "express";
-
+import express from "express";
 import cors from "cors";
 import helmet from "helmet";
-import { PrismaClient, Role, OrderStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { z } from "zod";
 import crypto from "crypto";
+import { PrismaClient, Role, OrderStatus, PartnerStatus } from "@prisma/client";
+import { z } from "zod";
 
-const prisma = new PrismaClient();
 const app = express();
+const db = new PrismaClient();
+
+const PORT = Number(process.env.PORT || 4000);
+const SECRET = process.env.JWT_SECRET || "";
+
+if (SECRET.length < 32) {
+  throw new Error("JWT_SECRET must contain at least 32 characters");
+}
 
 app.use(helmet());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(",")
+    : true
+}));
+app.use(express.json({ limit: "2mb" }));
 
-app.use(
-  cors({
-    origin: process.env.CORS_ORIGIN?.split(",") ?? true
-  })
-);
-
-app.use(express.json({ limit: "1mb" }));
-
-const JWT_SECRET = process.env.JWT_SECRET;
-
-if (!JWT_SECRET || JWT_SECRET.length < 32) {
-  throw new Error(
-    "JWT_SECRET must be configured with at least 32 characters."
-  );
-}
-
-type AuthRequest = Request & {
-  auth?: {
-    id: string;
-    role: Role;
-  };
+type RequestWithUser = express.Request & {
+  user?: { id: string; role: Role; email: string };
 };
 
-function tokenFor(user: { id: string; role: Role }) {
-  return jwt.sign(
-    {
-      id: user.id,
-      role: user.role
-    },
-    JWT_SECRET!,
+const issueToken = (user: any) =>
+  jwt.sign(
+    { id: user.id, role: user.role, email: user.email },
+    SECRET,
     { expiresIn: "7d" }
   );
-}
 
-function auth(
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
+function authenticate(
+  req: RequestWithUser,
+  res: express.Response,
+  next: express.NextFunction
 ) {
-  const raw = req.headers.authorization?.replace(
-    /^Bearer\s+/i,
-    ""
-  );
-
-  if (!raw) {
-    return res.status(401).json({
-      error: "Authentication required"
-    });
-  }
-
   try {
-    req.auth = jwt.verify(
-      raw,
-      JWT_SECRET!
-    ) as {
-      id: string;
-      role: Role;
-    };
-
+    const header = req.headers.authorization;
+    if (!header?.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Please sign in" });
+    }
+    req.user = jwt.verify(header.slice(7), SECRET) as RequestWithUser["user"];
     next();
   } catch {
-    return res.status(401).json({
-      error: "Session expired or invalid"
-    });
+    return res.status(401).json({ error: "Session expired" });
   }
 }
 
-function admin(
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-) {
-  if (req.auth?.role !== Role.ADMIN) {
-    return res.status(403).json({
-      error: "Admin access required"
-    });
-  }
-
-  next();
+function roles(...allowed: Role[]) {
+  return (
+    req: RequestWithUser,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    if (!req.user || !allowed.includes(req.user.role)) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+    next();
+  };
 }
 
-const asyncRoute = (
-  fn: (
-    req: AuthRequest,
-    res: Response
-  ) => Promise<unknown>
-) =>
-  (
-    req: AuthRequest,
-    res: Response,
-    next: NextFunction
-  ) =>
-    Promise.resolve(fn(req, res)).catch(next);
+const admin = [authenticate, roles(Role.ADMIN)];
+const partner = [authenticate, roles(Role.PARTNER)];
 
-// Health check
 app.get("/api/health", (_req, res) => {
-  res.json({
-    ok: true,
-    service: "homy-api"
-  });
+  res.json({ status: "ok", service: "HØmy API" });
 });
 
-// Register customer
-app.post(
-  "/api/auth/register",
-  asyncRoute(async (req, res) => {
-    const input = z
-      .object({
-        name: z.string().min(2).max(80),
-        email: z.string().email(),
-        password: z.string().min(8).max(100),
-        phone: z.string().max(30).optional()
-      })
-      .parse(req.body);
+/* AUTHENTICATION */
 
-    const email = input.email.toLowerCase();
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const data = z.object({
+      name: z.string().min(2).max(80),
+      email: z.string().email().transform(v => v.toLowerCase()),
+      phone: z.string().optional(),
+      password: z.string().min(8).max(100)
+    }).parse(req.body);
 
-    if (
-      await prisma.user.findUnique({
-        where: { email }
-      })
-    ) {
-      return res.status(409).json({
-        error: "Email already registered"
-      });
+    const existing = await db.user.findUnique({
+      where: { email: data.email }
+    });
+
+    if (existing) {
+      return res.status(409).json({ error: "Email already registered" });
     }
 
-    const user = await prisma.user.create({
+    const user = await db.user.create({
       data: {
-        name: input.name,
-        email,
-        phone: input.phone,
-        passwordHash: await bcrypt.hash(
-          input.password,
-          12
-        )
+        name: data.name,
+        email: data.email,
+        phone: data.phone,
+        passwordHash: await bcrypt.hash(data.password, 12),
+        role: Role.CUSTOMER
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        role: true
       }
     });
 
-    return res.status(201).json({
-      token: tokenFor(user),
+    res.status(201).json({ token: issueToken(user), user });
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Registration failed"
+    });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const data = z.object({
+      email: z.string().email().transform(v => v.toLowerCase()),
+      password: z.string().min(1)
+    }).parse(req.body);
+
+    const user = await db.user.findUnique({
+      where: { email: data.email }
+    });
+
+    if (!user || !(await bcrypt.compare(data.password, user.passwordHash))) {
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+
+    res.json({
+      token: issueToken(user),
       user: {
         id: user.id,
         name: user.name,
         email: user.email,
+        phone: user.phone,
         role: user.role
       }
     });
-  })
-);
-
-// Login
-app.post(
-  "/api/auth/login",
-  asyncRoute(async (req, res) => {
-    const input = z
-      .object({
-        email: z.string().email(),
-        password: z.string().min(1)
-      })
-      .parse(req.body);
-
-    const user = await prisma.user.findUnique({
-      where: {
-        email: input.email.toLowerCase()
-      }
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Login failed"
     });
+  }
+});
 
-    if (
-      !user ||
-      !(await bcrypt.compare(
-        input.password,
-        user.passwordHash
-      ))
-    ) {
-      return res.status(401).json({
-        error: "Email or password is incorrect"
-      });
-    }
+app.get("/api/auth/me", authenticate, async (req: RequestWithUser, res) => {
+  const user = await db.user.findUnique({
+    where: { id: req.user!.id },
+    select: { id: true, name: true, email: true, phone: true, role: true }
+  });
 
-    return res.json({
-      token: tokenFor(user),
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role
-      }
-    });
-  })
-);
+  if (!user) return res.status(404).json({ error: "User not found" });
+  res.json({ user });
+});
 
-// Product list
-app.get(
-  "/api/products",
-  asyncRoute(async (req, res) => {
-    const type = req.query.type;
+/* CUSTOMER PRODUCT CATALOGUE */
 
-    if (
-      type &&
-      !["VEG", "NON_VEG"].includes(String(type))
-    ) {
-      return res.status(400).json({
-        error: "Invalid product type"
-      });
-    }
+app.get("/api/products", async (req, res) => {
+  const type = req.query.type;
 
-    const products = await prisma.product.findMany({
-      where: {
-        isAvailable: true,
-        ...(type
-          ? {
-              type: String(type) as
-                | "VEG"
-                | "NON_VEG"
-            }
-          : {})
-      },
-      orderBy: {
-        createdAt: "desc"
-      }
-    });
+  const products = await db.product.findMany({
+    where: {
+      isAvailable: true,
+      ...(type === "VEG" || type === "NON_VEG" ? { type } : {})
+    },
+    include: {
+      ingredients: { orderBy: { sortOrder: "asc" } },
+      images: { orderBy: { sortOrder: "asc" } }
+    },
+    orderBy: { createdAt: "desc" }
+  });
 
-    return res.json(products);
-  })
-);
+  res.json({ products });
+});
 
-// Product details
-app.get(
-  "/api/products/:id",
-  asyncRoute(async (req, res) => {
-    const product = await prisma.product.findUnique({
-      where: {
-        id: String(req.params.id)
-      }
-    });
+app.get("/api/products/:id", async (req, res) => {
+  const product = await db.product.findFirst({
+    where: { id: req.params.id, isAvailable: true },
+    include: { ingredients: true, images: true }
+  });
 
-    if (!product || !product.isAvailable) {
-      return res.status(404).json({
-        error: "Product not found"
-      });
-    }
+  if (!product) return res.status(404).json({ error: "Product not found" });
+  res.json({ product });
+});
 
-    return res.json(product);
-  })
-);
+/* ADMIN PRODUCTS */
 
-// Create product (admin)
-app.post(
-  "/api/products",
-  auth,
-  admin,
-  asyncRoute(async (req, res) => {
-    const product = z
-      .object({
-        name: z.string().min(2),
-        description: z.string().min(5),
-        type: z.enum(["VEG", "NON_VEG"]),
-        pricePaise: z.number().int().positive(),
-        imageUrl: z.string().url(),
-        servings: z.number().int().min(1).max(20),
-        prepMinutes: z.number().int().min(1).max(240)
-      })
-      .parse(req.body);
+app.get("/api/admin/products", ...admin, async (_req, res) => {
+  const products = await db.product.findMany({
+    include: { ingredients: true, images: true },
+    orderBy: { createdAt: "desc" }
+  });
 
-    return res.status(201).json(
-      await prisma.product.create({
-        data: product
-      })
-    );
-  })
-);
+  res.json({ products });
+});
 
-// Update product (admin)
-app.patch(
-  "/api/products/:id",
-  auth,
-  admin,
-  asyncRoute(async (req, res) => {
-    const product = z
-      .object({
-        name: z.string().min(2).optional(),
-        description: z.string().min(5).optional(),
-        type: z.enum(["VEG", "NON_VEG"]).optional(),
-        pricePaise: z.number().int().positive().optional(),
-        imageUrl: z.string().url().optional(),
-        servings: z.number().int().min(1).max(20).optional(),
-        prepMinutes: z.number().int().min(1).max(240).optional(),
-        isAvailable: z.boolean().optional()
-      })
-      .parse(req.body);
+const productSchema = z.object({
+  name: z.string().min(2).max(120),
+  description: z.string().max(2000).default(""),
+  category: z.string().min(2).max(80).default("South Indian"),
+  type: z.enum(["VEG", "NON_VEG"]),
+  pricePaise: z.number().int().positive(),
+  imageUrl: z.string().url(),
+  servings: z.number().int().min(1).max(30).default(2),
+  prepMinutes: z.number().int().min(1).max(240).default(25),
+  isAvailable: z.boolean().default(true),
+  ingredients: z.array(z.object({
+    name: z.string().min(1),
+    quantity: z.string().min(1),
+    imageUrl: z.string().optional()
+  })).default([]),
+  images: z.array(z.string().url()).default([])
+});
 
-    return res.json(
-      await prisma.product.update({
-        where: {
-          id: String(req.params.id)
-        },
-        data: product
-      })
-    );
-  })
-);
+app.post("/api/admin/products", ...admin, async (req, res) => {
+  try {
+    const data = productSchema.parse(req.body);
 
-// Soft-delete product (admin)
-app.delete(
-  "/api/products/:id",
-  auth,
-  admin,
-  asyncRoute(async (req, res) => {
-    await prisma.product.update({
-      where: {
-        id: String(req.params.id)
-      },
+    const product = await db.product.create({
       data: {
-        isAvailable: false
-      }
-    });
-
-    return res.status(204).send();
-  })
-);
-
-// Place order
-app.post(
-  "/api/orders",
-  auth,
-  asyncRoute(async (req, res) => {
-    const body = z
-      .object({
-        address: z.string().min(8).max(500),
-        customerNote: z.string().max(500).optional(),
-        paymentMethod: z.enum(["COD"]).default("COD"),
-        items: z
-          .array(
-            z.object({
-              productId: z.string(),
-              quantity: z.number().int().min(1).max(30)
-            })
-          )
-          .min(1)
-          .max(30)
-      })
-      .parse(req.body);
-
-    const ids = [
-      ...new Set(
-        body.items.map((item) => item.productId)
-      )
-    ];
-
-    const products = await prisma.product.findMany({
-      where: {
-        id: {
-          in: ids
+        name: data.name,
+        description: data.description,
+        category: data.category,
+        type: data.type,
+        pricePaise: data.pricePaise,
+        imageUrl: data.imageUrl,
+        servings: data.servings,
+        prepMinutes: data.prepMinutes,
+        isAvailable: data.isAvailable,
+        ingredients: {
+          create: data.ingredients.map((item, index) => ({
+            ...item,
+            sortOrder: index
+          }))
         },
-        isAvailable: true
-      }
-    });
-
-    if (products.length !== ids.length) {
-      return res.status(400).json({
-        error: "One or more products are unavailable"
-      });
-    }
-
-    const byId = new Map(
-      products.map((product) => [
-        product.id,
-        product
-      ])
-    );
-
-    const subtotal = body.items.reduce(
-      (sum, item) =>
-        sum +
-        byId.get(item.productId)!.pricePaise *
-          item.quantity,
-      0
-    );
-
-    const delivery =
-      subtotal >= 49900 ? 0 : 3900;
-
-    const order = await prisma.order.create({
-      data: {
-        orderNumber:
-          "HM" +
-          Date.now().toString(36).toUpperCase() +
-          crypto
-            .randomBytes(2)
-            .toString("hex")
-            .toUpperCase(),
-
-        userId: req.auth!.id,
-        address: body.address,
-        customerNote: body.customerNote,
-        paymentMethod: "COD",
-
-        subtotalPaise: subtotal,
-        deliveryPaise: delivery,
-        totalPaise: subtotal + delivery,
-
-        items: {
-          create: body.items.map((item) => ({
-            productId: item.productId,
-            productName:
-              byId.get(item.productId)!.name,
-            quantity: item.quantity,
-            unitPricePaise:
-              byId.get(item.productId)!.pricePaise
+        images: {
+          create: data.images.map((imageUrl, index) => ({
+            imageUrl,
+            sortOrder: index
           }))
         }
       },
-      include: {
-        items: true
-      }
+      include: { ingredients: true, images: true }
     });
 
-    return res.status(201).json(order);
-  })
-);
-
-// Customer order history
-app.get(
-  "/api/orders/mine",
-  auth,
-  asyncRoute(async (req, res) => {
-    return res.json(
-      await prisma.order.findMany({
-        where: {
-          userId: req.auth!.id
-        },
-        include: {
-          items: true
-        },
-        orderBy: {
-          createdAt: "desc"
-        }
-      })
-    );
-  })
-);
-
-// Customer cancellation
-app.post(
-  "/api/orders/:id/cancel",
-  auth,
-  asyncRoute(async (req, res) => {
-    const order = await prisma.order.findFirst({
-      where: {
-        id: String(req.params.id),
-        userId: req.auth!.id
-      }
+    res.status(201).json({ product });
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Product creation failed"
     });
+  }
+});
 
-    if (!order) {
-      return res.status(404).json({
-        error: "Order not found"
-      });
-    }
+app.put("/api/admin/products/:id", ...admin, async (req, res) => {
+  try {
+    const data = productSchema.parse(req.body);
+    const id = req.params.id;
 
-    if (
-      !["PLACED", "CONFIRMED"].includes(
-        order.status
-      )
-    ) {
-      return res.status(409).json({
-        error:
-          "This order can no longer be cancelled"
-      });
-    }
+    const product = await db.$transaction(async tx => {
+      await tx.ingredient.deleteMany({ where: { productId: id } });
+      await tx.productImage.deleteMany({ where: { productId: id } });
 
-    return res.json(
-      await prisma.order.update({
-        where: {
-          id: order.id
-        },
+      return tx.product.update({
+        where: { id },
         data: {
-          status: "CANCELLED"
-        }
-      })
-    );
-  })
-);
-
-// Admin order list
-app.get(
-  "/api/admin/orders",
-  auth,
-  admin,
-  asyncRoute(async (_req, res) => {
-    return res.json(
-      await prisma.order.findMany({
-        include: {
-          items: true,
-          user: {
-            select: {
-              name: true,
-              email: true,
-              phone: true
-            }
+          name: data.name,
+          description: data.description,
+          category: data.category,
+          type: data.type,
+          pricePaise: data.pricePaise,
+          imageUrl: data.imageUrl,
+          servings: data.servings,
+          prepMinutes: data.prepMinutes,
+          isAvailable: data.isAvailable,
+          ingredients: {
+            create: data.ingredients.map((item, index) => ({
+              ...item,
+              sortOrder: index
+            }))
+          },
+          images: {
+            create: data.images.map((imageUrl, index) => ({
+              imageUrl,
+              sortOrder: index
+            }))
           }
         },
-        orderBy: {
-          createdAt: "desc"
-        }
-      })
-    );
-  })
-);
-
-// Admin status update
-app.patch(
-  "/api/admin/orders/:id/status",
-  auth,
-  admin,
-  asyncRoute(async (req, res) => {
-    const status = z
-      .nativeEnum(OrderStatus)
-      .parse(req.body.status);
-
-    const order = await prisma.order.findUnique({
-      where: {
-        id: String(req.params.id)
-      }
+        include: { ingredients: true, images: true }
+      });
     });
 
-    if (!order) {
-      return res.status(404).json({
-        error: "Order not found"
-      });
+    res.json({ product });
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Update failed"
+    });
+  }
+});
+
+app.patch("/api/admin/products/:id/availability", ...admin, async (req, res) => {
+  try {
+    const { isAvailable } = z.object({
+      isAvailable: z.boolean()
+    }).parse(req.body);
+
+    const product = await db.product.update({
+      where: { id: req.params.id },
+      data: { isAvailable }
+    });
+
+    res.json({ product });
+  } catch {
+    res.status(404).json({ error: "Product not found" });
+  }
+});
+
+/* CUSTOMER ORDERS */
+
+app.post("/api/orders", authenticate, roles(Role.CUSTOMER), async (req: RequestWithUser, res) => {
+  try {
+    const data = z.object({
+      address: z.string().min(8).max(500),
+      latitude: z.number().optional(),
+      longitude: z.number().optional(),
+      note: z.string().max(500).optional(),
+      paymentMethod: z.enum(["COD", "UPI"]).default("COD"),
+      items: z.array(z.object({
+        productId: z.string(),
+        quantity: z.number().int().min(1).max(30)
+      })).min(1)
+    }).parse(req.body);
+
+    if (data.paymentMethod === "UPI" && !process.env.UPI_ID) {
+      return res.status(400).json({ error: "UPI is not configured" });
     }
 
-    const allowed: Record<
-      OrderStatus,
-      OrderStatus[]
-    > = {
+    const ids = [...new Set(data.items.map(i => i.productId))];
+    const products = await db.product.findMany({
+      where: { id: { in: ids }, isAvailable: true }
+    });
+
+    if (products.length !== ids.length) {
+      return res.status(400).json({ error: "A product is unavailable" });
+    }
+
+    const lookup = new Map(products.map(p => [p.id, p]));
+    const subtotal = data.items.reduce(
+      (sum, item) => sum + lookup.get(item.productId)!.pricePaise * item.quantity,
+      0
+    );
+
+    const delivery = subtotal >= 49900 ? 0 : 3900;
+    const order = await db.order.create({
+      data: {
+        orderNumber: "HOMY-" + crypto.randomBytes(4).toString("hex").toUpperCase(),
+        userId: req.user!.id,
+        subtotalPaise: subtotal,
+        deliveryPaise: delivery,
+        totalPaise: subtotal + delivery,
+        paymentMethod: data.paymentMethod,
+        paymentStatus: "PENDING",
+        address: data.address,
+        latitude: data.latitude,
+        longitude: data.longitude,
+        customerNote: data.note,
+        items: {
+          create: data.items.map(item => ({
+            productId: item.productId,
+            productName: lookup.get(item.productId)!.name,
+            quantity: item.quantity,
+            unitPricePaise: lookup.get(item.productId)!.pricePaise
+          }))
+        }
+      },
+      include: { items: true }
+    });
+
+    res.status(201).json({
+      order,
+      payment: data.paymentMethod === "UPI"
+        ? { upiId: process.env.UPI_ID, status: "AWAITING_VERIFICATION" }
+        : { status: "PAY_ON_DELIVERY" }
+    });
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Order failed"
+    });
+  }
+});
+
+app.get("/api/orders/mine", authenticate, async (req: RequestWithUser, res) => {
+  const orders = await db.order.findMany({
+    where: { userId: req.user!.id },
+    include: {
+      items: true,
+      tracking: { orderBy: { createdAt: "desc" }, take: 1 }
+    },
+    orderBy: { createdAt: "desc" }
+  });
+
+  res.json({ orders });
+});
+
+app.post("/api/orders/:id/cancel", authenticate, async (req: RequestWithUser, res) => {
+  const order = await db.order.findFirst({
+    where: { id: req.params.id, userId: req.user!.id }
+  });
+
+  if (!order) return res.status(404).json({ error: "Order not found" });
+
+  if (!["PLACED", "CONFIRMED"].includes(order.status)) {
+    return res.status(400).json({ error: "Order cannot be cancelled now" });
+  }
+
+  const updated = await db.order.update({
+    where: { id: order.id },
+    data: { status: "CANCELLED" }
+  });
+
+  res.json({ order: updated });
+});
+
+/* ADMIN DASHBOARD */
+
+app.get("/api/admin/summary", ...admin, async (_req, res) => {
+  const [orders, products, customers, revenue] = await Promise.all([
+    db.order.count(),
+    db.product.count({ where: { isAvailable: true } }),
+    db.user.count({ where: { role: Role.CUSTOMER } }),
+    db.order.aggregate({
+      where: { status: { not: "CANCELLED" } },
+      _sum: { totalPaise: true }
+    })
+  ]);
+
+  res.json({
+    orders,
+    products,
+    customers,
+    revenuePaise: revenue._sum.totalPaise || 0
+  });
+});
+
+app.get("/api/admin/orders", ...admin, async (_req, res) => {
+  const orders = await db.order.findMany({
+    include: {
+      items: true,
+      user: { select: { name: true, email: true, phone: true } },
+      assignedPartner: {
+        include: { user: { select: { name: true, phone: true } } }
+      }
+    },
+    orderBy: { createdAt: "desc" }
+  });
+
+  res.json({ orders });
+});
+
+app.patch("/api/admin/orders/:id/status", ...admin, async (req, res) => {
+  try {
+    const { status } = z.object({
+      status: z.nativeEnum(OrderStatus)
+    }).parse(req.body);
+
+    const order = await db.order.findUnique({
+      where: { id: req.params.id }
+    });
+
+    if (!order) return res.status(404).json({ error: "Order not found" });
+
+    const transitions: Record<OrderStatus, OrderStatus[]> = {
       PLACED: ["CONFIRMED", "CANCELLED"],
       CONFIRMED: ["PREPARING", "CANCELLED"],
-      PREPARING: ["OUT_FOR_DELIVERY"],
+      PREPARING: ["OUT_FOR_DELIVERY", "CANCELLED"],
       OUT_FOR_DELIVERY: ["DELIVERED"],
       DELIVERED: [],
       CANCELLED: []
     };
 
-    if (!allowed[order.status].includes(status)) {
-      return res.status(409).json({
-        error:
-          `Cannot move ${order.status} to ${status}`
-      });
+    if (!transitions[order.status].includes(status)) {
+      return res.status(400).json({ error: "Invalid status transition" });
     }
 
-    return res.json(
-      await prisma.order.update({
-        where: {
-          id: order.id
-        },
-        data: {
-          status
-        }
-      })
-    );
-  })
-);
-
-// Admin dashboard summary
-app.get(
-  "/api/admin/summary",
-  auth,
-  admin,
-  asyncRoute(async (_req, res) => {
-    const [
-      orders,
-      products,
-      users,
-      revenue
-    ] = await Promise.all([
-      prisma.order.count(),
-
-      prisma.product.count({
-        where: {
-          isAvailable: true
-        }
-      }),
-
-      prisma.user.count({
-        where: {
-          role: Role.CUSTOMER
-        }
-      }),
-
-      prisma.order.aggregate({
-        where: {
-          status: "DELIVERED"
-        },
-        _sum: {
-          totalPaise: true
-        }
-      })
-    ]);
-
-    return res.json({
-      orders,
-      activeProducts: products,
-      customers: users,
-      revenuePaise:
-        revenue._sum.totalPaise ?? 0
+    const updated = await db.order.update({
+      where: { id: order.id },
+      data: { status }
     });
-  })
-);
 
-// Error handler
-app.use(
-  (
-    err: unknown,
-    _req: Request,
-    res: Response,
-    _next: NextFunction
-  ) => {
-    if (err instanceof z.ZodError) {
-      return res.status(400).json({
-        error: "Invalid input",
-        details: err.issues
-      });
-    }
-
-    console.error(err);
-
-    return res.status(500).json({
-      error: "Unexpected server error"
+    res.json({ order: updated });
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Invalid status"
     });
   }
-);
+});
 
-const port = Number(
-  process.env.PORT ?? 4000
-);
+/* DELIVERY PARTNERS */
 
-app.listen(port, () => {
-  console.log(
-    `HØmy API listening on ${port}`
-  );
+app.get("/api/admin/partners", ...admin, async (_req, res) => {
+  const partners = await db.deliveryPartner.findMany({
+    include: {
+      user: { select: { id: true, name: true, email: true, phone: true } }
+    },
+    orderBy: { createdAt: "desc" }
+  });
+
+  res.json({ partners });
+});
+
+app.post("/api/admin/partners", ...admin, async (req, res) => {
+  try {
+    const data = z.object({
+      name: z.string().min(2),
+      email: z.string().email().transform(v => v.toLowerCase()),
+      phone: z.string().min(8),
+      password: z.string().min(8),
+      vehicleType: z.string().optional(),
+      vehicleNumber: z.string().optional()
+    }).parse(req.body);
+
+    const existing = await db.user.findUnique({
+      where: { email: data.email }
+    });
+
+    if (existing) return res.status(409).json({ error: "Email already exists" });
+
+    const created = await db.user.create({
+      data: {
+        name: data.name,
+        email: data.email,
+        phone: data.phone,
+        passwordHash: await bcrypt.hash(data.password, 12),
+        role: Role.PARTNER,
+        partner: {
+          create: {
+            status: PartnerStatus.APPROVED,
+            vehicleType: data.vehicleType,
+            vehicleNumber: data.vehicleNumber
+          }
+        }
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        partner: true
+      }
+    });
+
+    res.status(201).json({ partner: created });
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Partner creation failed"
+    });
+  }
+});
+
+app.post("/api/admin/orders/:id/assign", ...admin, async (req, res) => {
+  try {
+    const { partnerId } = z.object({
+      partnerId: z.string()
+    }).parse(req.body);
+
+    const deliveryPartner = await db.deliveryPartner.findFirst({
+      where: { id: partnerId, status: PartnerStatus.APPROVED }
+    });
+
+    if (!deliveryPartner) {
+      return res.status(404).json({ error: "Approved partner not found" });
+    }
+
+    const order = await db.order.update({
+      where: { id: req.params.id },
+      data: { assignedPartnerId: deliveryPartner.id }
+    });
+
+    res.json({ order });
+  } catch {
+    res.status(404).json({ error: "Order or partner not found" });
+  }
+});
+
+/* PARTNER ORDERS AND GPS */
+
+app.get("/api/partner/orders", ...partner, async (req: RequestWithUser, res) => {
+  const p = await db.deliveryPartner.findUnique({
+    where: { userId: req.user!.id }
+  });
+
+  if (!p || p.status !== "APPROVED") {
+    return res.status(403).json({ error: "Partner account not approved" });
+  }
+
+  const orders = await db.order.findMany({
+    where: { assignedPartnerId: p.id },
+    include: {
+      items: true,
+      user: { select: { name: true, phone: true } }
+    },
+    orderBy: { createdAt: "desc" }
+  });
+
+  res.json({ orders });
+});
+
+app.post("/api/partner/location", ...partner, async (req: RequestWithUser, res) => {
+  try {
+    const data = z.object({
+      latitude: z.number().min(-90).max(90),
+      longitude: z.number().min(-180).max(180)
+    }).parse(req.body);
+
+    const p = await db.deliveryPartner.findUnique({
+      where: { userId: req.user!.id }
+    });
+
+    if (!p || p.status !== "APPROVED") {
+      return res.status(403).json({ error: "Partner not approved" });
+    }
+
+    await db.deliveryPartner.update({
+      where: { id: p.id },
+      data: {
+        latitude: data.latitude,
+        longitude: data.longitude,
+        lastLocationAt: new Date()
+      }
+    });
+
+    const active = await db.order.findMany({
+      where: {
+        assignedPartnerId: p.id,
+        status: "OUT_FOR_DELIVERY"
+      },
+      select: { id: true }
+    });
+
+    if (active.length) {
+      await db.orderTracking.createMany({
+        data: active.map(o => ({
+          orderId: o.id,
+          partnerId: p.id,
+          latitude: data.latitude,
+          longitude: data.longitude
+        }))
+      });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Location update failed"
+    });
+  }
+});
+
+app.patch("/api/partner/orders/:id/status", ...partner, async (req: RequestWithUser, res) => {
+  try {
+    const { status } = z.object({
+      status: z.enum(["OUT_FOR_DELIVERY", "DELIVERED"])
+    }).parse(req.body);
+
+    const p = await db.deliveryPartner.findUnique({
+      where: { userId: req.user!.id }
+    });
+
+    if (!p) return res.status(403).json({ error: "Partner not found" });
+
+    const order = await db.order.findFirst({
+      where: { id: req.params.id, assignedPartnerId: p.id }
+    });
+
+    if (!order) return res.status(404).json({ error: "Order not assigned to you" });
+
+    const valid =
+      (status === "OUT_FOR_DELIVERY" && order.status === "PREPARING") ||
+      (status === "DELIVERED" && order.status === "OUT_FOR_DELIVERY");
+
+    if (!valid) return res.status(400).json({ error: "Invalid order transition" });
+
+    const updated = await db.order.update({
+      where: { id: order.id },
+      data: { status }
+    });
+
+    res.json({ order: updated });
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Status update failed"
+    });
+  }
+});
+
+app.get("/api/orders/:id/tracking", authenticate, async (req: RequestWithUser, res) => {
+  const order = await db.order.findFirst({
+    where: { id: req.params.id, userId: req.user!.id },
+    include: {
+      assignedPartner: {
+        select: {
+          latitude: true,
+          longitude: true,
+          lastLocationAt: true
+        }
+      }
+    }
+  });
+
+  if (!order) return res.status(404).json({ error: "Order not found" });
+
+  res.json({
+    status: order.status,
+    location: order.assignedPartner?.latitude != null
+      ? {
+          latitude: order.assignedPartner.latitude,
+          longitude: order.assignedPartner.longitude,
+          updatedAt: order.assignedPartner.lastLocationAt
+        }
+      : null
+  });
+});
+
+/* ERROR HANDLER */
+
+app.use((error: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error(error);
+  res.status(500).json({ error: "Internal server error" });
+});
+
+app.listen(PORT, () => {
+  console.log(`HØmy API listening on ${PORT}`);
 });
