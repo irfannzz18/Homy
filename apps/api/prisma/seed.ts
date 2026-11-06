@@ -10,15 +10,22 @@ async function main() {
   const name = process.env.ADMIN_NAME || "HØmy Admin";
 
   if (!email || !password || password.length < 12) {
-    throw new Error("Set ADMIN_EMAIL and ADMIN_PASSWORD (minimum 12 characters)");
+    throw new Error(
+      "Set ADMIN_EMAIL and ADMIN_PASSWORD (minimum 12 characters)"
+    );
   }
 
-  const existing = await db.user.findUnique({ where: { email } });
+  const existing = await db.user.findUnique({
+    where: { email }
+  });
 
   if (existing) {
     if (existing.role !== Role.ADMIN) {
-      throw new Error("That email already belongs to a non-admin account");
+      throw new Error(
+        "That email already belongs to a non-admin account"
+      );
     }
+
     console.log("Admin already exists.");
     return;
   }
