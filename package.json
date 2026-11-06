@@ -14,4 +14,4 @@
     "build:customer": "npm run build --workspace=@homy/customer-web",
     "build:partner": "npm run build --workspace=@homy/partner"
   }
-} 
+}
