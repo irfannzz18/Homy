@@ -1,9 +1,19 @@
+
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 
 const API = import.meta.env.VITE_API_URL || "https://homy-b5e6.onrender.com/api";
 const money = n => `₹${(Number(n || 0) / 100).toFixed(2)}`;
+
+const statusName = status => ({
+  PREPARING: "Preparing",
+  PLACED: "Preparing",
+  CONFIRMED: "Preparing",
+  OUT_FOR_DELIVERY: "Out for Delivery",
+  DELIVERED: "Delivered",
+  CANCELLED: "Cancelled"
+}[status] || "Preparing");
 
 function App() {
   const [products, setProducts] = useState([]);
@@ -18,8 +28,6 @@ function App() {
   const [auth, setAuth] = useState({ name: "", email: "", phone: "", password: "" });
   const [address, setAddress] = useState("");
   const [coords, setCoords] = useState(null);
-  const [payment, setPayment] = useState("COD");
-  const [upiId, setUpiId] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -32,6 +40,7 @@ function App() {
         ...(options.headers || {})
       }
     });
+
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || "Request failed");
     return data;
@@ -41,7 +50,19 @@ function App() {
     try {
       const result = await request("/products");
       setProducts(result.products || []);
-    } catch (e) { setError(e.message); }
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  async function loadOrders() {
+    if (!token) return;
+    try {
+      const result = await request("/orders/mine");
+      setOrders(result.orders || []);
+    } catch (e) {
+      setError(e.message);
+    }
   }
 
   async function loadUser() {
@@ -49,23 +70,35 @@ function App() {
     try {
       const result = await request("/auth/me");
       setUser(result.user);
-      const orderResult = await request("/orders/mine");
-      setOrders(orderResult.orders || []);
+      await loadOrders();
     } catch {
       localStorage.removeItem("homy-customer-token");
       setToken("");
+      setUser(null);
     }
   }
 
-  useEffect(() => { loadProducts(); }, []);
-  useEffect(() => { loadUser(); }, [token]);
+  useEffect(() => {
+    loadProducts();
+  }, []);
+
+  useEffect(() => {
+    if (!token) return;
+
+    loadUser();
+    const timer = setInterval(loadOrders, 3000);
+    return () => clearInterval(timer);
+  }, [token]);
 
   const visible = products.filter(p => filter === "ALL" || p.type === filter);
   const cartItems = Object.entries(cart).filter(([, qty]) => qty > 0);
+
   const subtotal = cartItems.reduce((sum, [id, qty]) => {
     const p = products.find(item => item.id === id);
     return sum + (p ? p.pricePaise * qty : 0);
   }, 0);
+
+  const delivery = subtotal >= 49900 ? 0 : 3900;
 
   function add(id) {
     setCart(old => ({ ...old, [id]: (old[id] || 0) + 1 }));
@@ -79,12 +112,14 @@ function App() {
     e.preventDefault();
     setBusy(true);
     setError("");
+
     try {
       const path = authMode === "register" ? "/auth/register" : "/auth/login";
       const result = await request(path, {
         method: "POST",
         body: JSON.stringify(auth)
       });
+
       localStorage.setItem("homy-customer-token", result.token);
       setToken(result.token);
       setUser(result.user);
@@ -101,6 +136,7 @@ function App() {
       setError("Location is not supported by this browser");
       return;
     }
+
     navigator.geolocation.getCurrentPosition(
       position => {
         const c = {
@@ -117,13 +153,17 @@ function App() {
 
   async function checkout(e) {
     e.preventDefault();
+
     if (!token) {
       setScreen("account");
       return;
     }
+
     if (!cartItems.length) return;
+
     setBusy(true);
     setError("");
+
     try {
       const result = await request("/orders", {
         method: "POST",
@@ -131,14 +171,17 @@ function App() {
           address,
           latitude: coords?.latitude,
           longitude: coords?.longitude,
-          paymentMethod: payment,
-          items: cartItems.map(([productId, quantity]) => ({ productId, quantity }))
+          paymentMethod: "COD",
+          items: cartItems.map(([productId, quantity]) => ({
+            productId,
+            quantity
+          }))
         })
       });
+
       setCart({});
-      setOrders(old => [result.order, ...old]);
-      setUpiId(result.payment?.upiId || "");
-      setScreen(payment === "UPI" ? "payment" : "orders");
+      await loadOrders();
+      setScreen("orders");
     } catch (e) {
       setError(e.message);
     } finally {
@@ -150,6 +193,7 @@ function App() {
     localStorage.removeItem("homy-customer-token");
     setToken("");
     setUser(null);
+    setOrders([]);
     setScreen("home");
   }
 
@@ -159,11 +203,16 @@ function App() {
         <button className="logo" onClick={() => setScreen("home")}>
           <span className="leaf">✦</span> HØmy
         </button>
+
         <nav>
           <button onClick={() => setScreen("home")}>Explore</button>
           <button onClick={() => setScreen("orders")}>My orders</button>
-          <button onClick={() => setScreen("cart")}>Cart ({cartItems.reduce((n, x) => n + x[1], 0)})</button>
-          <button onClick={() => setScreen("account")}>{user ? user.name : "Sign in"}</button>
+          <button onClick={() => setScreen("cart")}>
+            Cart ({cartItems.reduce((n, x) => n + x[1], 0)})
+          </button>
+          <button onClick={() => setScreen("account")}>
+            {user ? user.name : "Sign in"}
+          </button>
         </nav>
       </header>
 
@@ -182,10 +231,18 @@ function App() {
 
           <section id="kits" className="catalogue">
             <div className="section-title">
-              <div><p className="eyebrow">MADE FOR YOUR TABLE</p><h2>Our meal kits</h2></div>
+              <div>
+                <p className="eyebrow">MADE FOR YOUR TABLE</p>
+                <h2>Our meal kits</h2>
+              </div>
+
               <div className="filters">
                 {["ALL", "VEG", "NON_VEG"].map(f => (
-                  <button className={filter === f ? "chosen" : ""} key={f} onClick={() => setFilter(f)}>
+                  <button
+                    className={filter === f ? "chosen" : ""}
+                    key={f}
+                    onClick={() => setFilter(f)}
+                  >
                     {f === "ALL" ? "All" : f === "VEG" ? "Veg" : "Non-veg"}
                   </button>
                 ))}
@@ -198,10 +255,14 @@ function App() {
                   <button className="photo-button" onClick={() => setSelected(p)}>
                     <img src={p.imageUrl} alt={p.name} />
                   </button>
+
                   <div className="product-content">
-                    <span className="food-type">{p.type === "VEG" ? "VEGETARIAN" : "NON-VEGETARIAN"}</span>
+                    <span className="food-type">
+                      {p.type === "VEG" ? "VEGETARIAN" : "NON-VEGETARIAN"}
+                    </span>
                     <h3>{p.name}</h3>
                     <p>{p.description}</p>
+
                     <div className="product-bottom">
                       <strong>{money(p.pricePaise)}</strong>
                       <button onClick={() => add(p.id)}>Add +</button>
@@ -210,7 +271,10 @@ function App() {
                 </article>
               ))}
             </div>
-            {!visible.length && <p className="empty">No meal kits are currently listed.</p>}
+
+            {!visible.length && (
+              <p className="empty">No meal kits are currently listed.</p>
+            )}
           </section>
         </>
       )}
@@ -219,24 +283,31 @@ function App() {
         <div className="modal-backdrop" onClick={() => setSelected(null)}>
           <section className="detail-modal" onClick={e => e.stopPropagation()}>
             <button className="close" onClick={() => setSelected(null)}>×</button>
+
             <img className="detail-photo" src={selected.imageUrl} alt={selected.name} />
+
             <div className="detail-content">
               <p className="eyebrow">MEAL KIT DETAILS</p>
               <h2>{selected.name}</h2>
               <p>{selected.description}</p>
               <strong>{money(selected.pricePaise)}</strong>
+
               <div className="ingredient-slides">
                 {(selected.images || []).map(image => (
                   <img key={image.id} src={image.imageUrl} alt="Meal kit contents" />
                 ))}
               </div>
+
               <h3>What's inside</h3>
+
               {(selected.ingredients || []).map(item => (
                 <div className="ingredient" key={item.id}>
                   {item.imageUrl && <img src={item.imageUrl} alt={item.name} />}
-                  <span>{item.name}</span><small>{item.quantity}</small>
+                  <span>{item.name}</span>
+                  <small>{item.quantity}</small>
                 </div>
               ))}
+
               <button onClick={() => add(selected.id)}>Add to cart</button>
             </div>
           </section>
@@ -246,74 +317,120 @@ function App() {
       {screen === "cart" && (
         <main className="page">
           <h1>Your cart</h1>
+
           {cartItems.map(([id, qty]) => {
             const p = products.find(x => x.id === id);
             if (!p) return null;
+
             return (
               <div className="cart-row" key={id}>
                 <img src={p.imageUrl} alt={p.name} />
-                <div><strong>{p.name}</strong><p>{money(p.pricePaise)}</p></div>
+                <div>
+                  <strong>{p.name}</strong>
+                  <p>{money(p.pricePaise)}</p>
+                </div>
                 <div className="quantity">
-                  <button onClick={() => remove(id)}>-</button>{qty}<button onClick={() => add(id)}>+</button>
+                  <button onClick={() => remove(id)}>-</button>
+                  {qty}
+                  <button onClick={() => add(id)}>+</button>
                 </div>
               </div>
             );
           })}
+
           <h2>Subtotal: {money(subtotal)}</h2>
-          <p>Delivery: {subtotal >= 49900 ? "Free" : "₹39.00"}</p>
-          <button onClick={() => setScreen("checkout")} disabled={!cartItems.length}>Continue to checkout</button>
+          <p>Delivery: {delivery === 0 ? "Free" : money(delivery)}</p>
+          <h2>Total: {money(subtotal + delivery)}</h2>
+
+          <button onClick={() => setScreen("checkout")} disabled={!cartItems.length}>
+            Continue to checkout
+          </button>
         </main>
       )}
 
       {screen === "checkout" && (
         <main className="page">
           <h1>Delivery details</h1>
+
           <form className="checkout" onSubmit={checkout}>
             <label>Delivery address
-              <textarea required value={address} onChange={e => setAddress(e.target.value)} placeholder="House number, street, area, city, PIN code" />
+              <textarea
+                required
+                value={address}
+                onChange={e => setAddress(e.target.value)}
+                placeholder="House number, street, area, city, PIN code"
+              />
             </label>
-            <button type="button" className="secondary" onClick={useLocation}>Use my current location</button>
-            {coords && <p>Location captured. Please confirm the address above.</p>}
-            <label>Payment method
-              <select value={payment} onChange={e => setPayment(e.target.value)}>
-                <option value="COD">Cash on delivery</option>
-                {upiId && <option value="UPI">UPI</option>}
-              </select>
-            </label>
-            <h2>Total: {money(subtotal + (subtotal >= 49900 ? 0 : 3900))}</h2>
-            <button disabled={busy}>{busy ? "Placing order..." : "Place order"}</button>
-          </form>
-        </main>
-      )}
 
-      {screen === "payment" && (
-        <main className="page">
-          <h1>UPI payment</h1>
-          <p>UPI ID: {upiId}</p>
-          <p>Your order is awaiting payment verification. Do not assume payment is complete until it is verified by the merchant.</p>
-          <button onClick={() => setScreen("orders")}>View order</button>
+            <button type="button" className="secondary" onClick={useLocation}>
+              Use my current location
+            </button>
+
+            {coords && (
+              <p>Location captured. Please confirm the address above.</p>
+            )}
+
+            <h2>Total: {money(subtotal + delivery)}</h2>
+            <p>Payment: Cash on delivery</p>
+
+            <button disabled={busy}>
+              {busy ? "Placing order..." : "Place order"}
+            </button>
+          </form>
         </main>
       )}
 
       {screen === "orders" && (
         <main className="page">
           <h1>Your orders</h1>
-          {!token && <button onClick={() => setScreen("account")}>Sign in to view orders</button>}
+
+          {!token && (
+            <button onClick={() => setScreen("account")}>
+              Sign in to view orders
+            </button>
+          )}
+
           {orders.map(o => (
             <article className="order-card" key={o.id}>
               <strong>{o.orderNumber}</strong>
-              <span>{o.status.replaceAll("_", " ")}</span>
+              <span>{statusName(o.status)}</span>
               <p>{money(o.totalPaise)} · {o.paymentMethod}</p>
               <p>{o.address}</p>
-              {o.status === "PLACED" || o.status === "CONFIRMED" ? (
-                <button className="secondary" onClick={async () => {
-                  try {
-                    await request(`/orders/${o.id}/cancel`, { method: "POST" });
-                    const r = await request("/orders/mine");
-                    setOrders(r.orders);
-                  } catch (e) { setError(e.message); }
-                }}>Cancel order</button>
-              ) : null}
+
+              {o.deliveryOtp && o.status !== "DELIVERED" && (
+                <div className="delivery-otp">
+                  <strong>Delivery OTP: {o.deliveryOtp}</strong>
+                  <small>Share this code with the delivery partner only when your order arrives.</small>
+                </div>
+              )}
+
+              {o.assignedPartner?.user?.phone && (
+                <p>Delivery partner: {o.assignedPartner.user.phone}</p>
+              )}
+
+              {o.assignedPartner?.latitude != null &&
+               o.assignedPartner?.longitude != null && (
+                <p>
+                  Partner location: {o.assignedPartner.latitude},
+                  {o.assignedPartner.longitude}
+                </p>
+              )}
+
+              {(o.status === "PLACED" || o.status === "CONFIRMED") && (
+                <button
+                  className="secondary"
+                  onClick={async () => {
+                    try {
+                      await request(`/orders/${o.id}/cancel`, { method: "POST" });
+                      await loadOrders();
+                    } catch (e) {
+                      setError(e.message);
+                    }
+                  }}
+                >
+                  Cancel order
+                </button>
+              )}
             </article>
           ))}
         </main>
@@ -330,14 +447,52 @@ function App() {
           ) : (
             <form className="auth-form" onSubmit={submitAuth}>
               <h1>{authMode === "login" ? "Welcome back" : "Create account"}</h1>
-              {authMode === "register" && <>
-                <label>Name<input required value={auth.name} onChange={e => setAuth({ ...auth, name: e.target.value })} /></label>
-                <label>Phone<input value={auth.phone} onChange={e => setAuth({ ...auth, phone: e.target.value })} /></label>
-              </>}
-              <label>Email<input type="email" required value={auth.email} onChange={e => setAuth({ ...auth, email: e.target.value })} /></label>
-              <label>Password<input type="password" required value={auth.password} onChange={e => setAuth({ ...auth, password: e.target.value })} /></label>
-              <button disabled={busy}>{busy ? "Please wait..." : authMode === "login" ? "Sign in" : "Register"}</button>
-              <button type="button" className="secondary" onClick={() => setAuthMode(authMode === "login" ? "register" : "login")}>
+
+              {authMode === "register" && (
+                <>
+                  <label>Name
+                    <input
+                      required
+                      value={auth.name}
+                      onChange={e => setAuth({ ...auth, name: e.target.value })}
+                    />
+                  </label>
+                  <label>Phone
+                    <input
+                      value={auth.phone}
+                      onChange={e => setAuth({ ...auth, phone: e.target.value })}
+                    />
+                  </label>
+                </>
+              )}
+
+              <label>Email
+                <input
+                  type="email"
+                  required
+                  value={auth.email}
+                  onChange={e => setAuth({ ...auth, email: e.target.value })}
+                />
+              </label>
+
+              <label>Password
+                <input
+                  type="password"
+                  required
+                  value={auth.password}
+                  onChange={e => setAuth({ ...auth, password: e.target.value })}
+                />
+              </label>
+
+              <button disabled={busy}>
+                {busy ? "Please wait..." : authMode === "login" ? "Sign in" : "Register"}
+              </button>
+
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setAuthMode(authMode === "login" ? "register" : "login")}
+              >
                 {authMode === "login" ? "Create an account" : "I already have an account"}
               </button>
             </form>
