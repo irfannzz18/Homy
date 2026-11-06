@@ -1,3 +1,4 @@
+
 @import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap");
 
 :root {
@@ -32,7 +33,8 @@ button {
 
 button:disabled { opacity: .6; cursor: wait; }
 
-button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+button:focus-visible, input:focus-visible,
+select:focus-visible, textarea:focus-visible {
   outline: 2px solid #82966f;
   outline-offset: 2px;
 }
@@ -85,7 +87,7 @@ label {
   gap: 14px;
 }
 
-.login-card h1, .topbar h1 {
+.login-card h1 {
   font: 800 28px "Manrope", sans-serif;
   margin: 0;
 }
@@ -95,35 +97,42 @@ label {
 .error { color: #a33d35; font-size: 13px; }
 .notice { margin-bottom: 18px; }
 
-.layout { min-height: 100vh; display: flex; }
-
-.sidebar {
-  width: 245px;
-  padding: 28px 18px;
-  background: #e9efdc;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.admin-app {
+  min-height: 100vh;
+  padding-bottom: 92px;
 }
 
-.nav, .logout {
-  text-align: left;
-  background: transparent;
-  color: #455640;
-  font-weight: 600;
-}
-
-.nav.active { background: #d8e2c9; color: #344b31; }
-.logout { margin-top: auto; }
-
-.main { flex: 1; min-width: 0; padding: 32px; }
-
-.topbar, .section-head {
+.admin-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 13px;
+  padding: 18px 24px;
+  background: #e9efdc;
+  border-bottom: 1px solid #dce5d0;
+}
+
+.profile-avatar, .account-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  background: #536c48;
+  color: white;
+  font: 800 20px "Manrope", sans-serif;
+}
+
+.header-brand { flex: 1; }
+.header-brand .brand { font-size: 27px; }
+.header-brand small { color: #77816f; }
+
+.refresh-button { flex: 0 0 auto; }
+
+.admin-content {
+  width: min(1100px, 100%);
+  margin: auto;
+  padding: 25px;
 }
 
 .secondary {
@@ -133,9 +142,9 @@ label {
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 16px;
-  margin-bottom: 24px;
+  margin-bottom: 22px;
 }
 
 .stats article, .panel {
@@ -145,15 +154,145 @@ label {
   padding: 22px;
 }
 
-.stats article span { display: block; color: #7b8574; font-size: 13px; }
-.stats article strong { display: block; font: 800 26px "Manrope"; margin-top: 10px; }
+.stats article span {
+  display: block;
+  color: #7b8574;
+  font-size: 13px;
+}
 
-.panel h2 { font: 800 19px "Manrope"; margin: 0 0 18px; }
+.stats article strong {
+  display: block;
+  font: 800 26px "Manrope";
+  margin-top: 10px;
+}
+
+.panel { margin-bottom: 20px; }
+
+.panel h2 {
+  font: 800 19px "Manrope";
+  margin: 0 0 18px;
+}
+
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.section-head h2 { margin: 0; }
+
+.muted { color: #7b8574; font-size: 13px; }
+
+.bottom-nav {
+  position: fixed;
+  z-index: 20;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  padding: 9px 12px calc(9px + env(safe-area-inset-bottom));
+  background: #fffef9;
+  border-top: 1px solid #e3e8db;
+  box-shadow: 0 -5px 20px #34452b0b;
+}
+
+.bottom-nav button {
+  background: transparent;
+  color: #7b8574;
+  border-radius: 10px;
+  padding: 8px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.bottom-nav button span { font-size: 21px; }
+.bottom-nav button.bottom-active { color: #536c48; background: #edf2e5; }
+
+.add-circle {
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 27px;
+  line-height: 1;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 28px 12px;
+  color: #7b8574;
+}
+
+.partner-list { display: grid; gap: 12px; }
+
+.partner-row {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 13px 0;
+  border-bottom: 1px solid #edf0e8;
+}
+
+.partner-row p, .partner-row small {
+  display: block;
+  margin: 4px 0;
+  color: #7b8574;
+  font-size: 13px;
+}
+
+.profile-avatar.small {
+  width: 38px;
+  height: 38px;
+  font-size: 16px;
+}
+
+.account-panel { text-align: center; }
+
+.account-avatar {
+  width: 76px;
+  height: 76px;
+  margin: 5px auto 15px;
+  font-size: 30px;
+}
+
+.account-panel h2 { margin-bottom: 5px; }
+.account-panel > p { color: #7b8574; }
+
+.account-details {
+  display: grid;
+  gap: 0;
+  margin: 25px 0;
+  text-align: left;
+}
+
+.account-details div {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 14px 0;
+  border-bottom: 1px solid #edf0e8;
+}
+
+.account-details span { color: #7b8574; font-size: 13px; }
+.account-details strong { font-size: 13px; }
+
+.logout-button {
+  width: 100%;
+  background: #e8eddf;
+  color: #40533b;
+}
 
 .product-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 18px;
+  margin-top: 20px;
 }
 
 .product-card {
@@ -163,44 +302,62 @@ label {
   background: #fff;
 }
 
-.product-card img { width: 100%; height: 190px; object-fit: cover; display: block; }
+.product-card img {
+  width: 100%;
+  height: 190px;
+  object-fit: cover;
+  display: block;
+}
+
 .product-info { padding: 16px; }
 .product-info h3 { margin: 0 0 7px; }
 .product-info p { color: #77816f; font-size: 13px; }
 .product-info button { width: 100%; }
 
-.form-grid { display: grid; gap: 16px; max-width: 760px; }
-.form-grid h2 { grid-column: 1 / -1; }
+.form-grid {
+  display: grid;
+  gap: 16px;
+  max-width: 760px;
+  margin: 18px 0;
+}
+
+.form-grid h3 { margin: 0; }
 
 .order-row {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  gap: 15px;
-  padding: 16px 0;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 17px 0;
   border-bottom: 1px solid #edf0e8;
 }
 
-.order-row p, .order-row small { color: #7b8574; }
-.order-row select { margin-top: 8px; min-width: 150px; }
-.status { font-size: 11px; font-weight: 800; }
-.assign-row { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
+.order-main { flex: 1; min-width: 0; }
+.order-main p, .order-main small { color: #7b8574; }
+.order-main small { overflow-wrap: anywhere; }
 
-@media (max-width: 850px) {
-  .sidebar { width: 190px; }
-  .main { padding: 22px; }
-  .stats { grid-template-columns: repeat(2, 1fr); }
+.order-actions {
+  width: 165px;
+  flex: 0 0 auto;
+  display: grid;
+  gap: 9px;
 }
 
+.status {
+  color: #536c48;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.assign-row { margin-top: 15px; max-width: 300px; }
+
 @media (max-width: 600px) {
-  .layout { display: block; }
-  .sidebar { width: 100%; padding: 14px; flex-direction: row; flex-wrap: wrap; }
-  .sidebar .brand { width: 100%; }
-  .sidebar .eyebrow { display: none; }
-  .nav { padding: 9px; font-size: 12px; }
-  .logout { margin: 0; }
-  .main { padding: 16px; }
+  .admin-header { padding: 14px; }
+  .admin-content { padding: 14px; }
   .stats { gap: 9px; }
   .stats article { padding: 15px; }
-  .order-row { align-items: flex-start; flex-direction: column; }
+  .order-row { flex-direction: column; }
+  .order-actions { width: 100%; }
+  .panel { padding: 16px; }
+  .login-card { padding: 25px; }
 }
