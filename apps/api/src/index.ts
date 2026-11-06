@@ -6,7 +6,12 @@ import helmet from "helmet";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
-import { PrismaClient, Role, OrderStatus, PartnerStatus } from "@prisma/client";
+import {
+  PrismaClient,
+  Role,
+  OrderStatus,
+  PartnerStatus
+} from "@prisma/client";
 import { z } from "zod";
 
 const app = express();
@@ -28,7 +33,11 @@ app.use(cors({
 app.use(express.json({ limit: "2mb" }));
 
 type RequestWithUser = express.Request & {
-  user?: { id: string; role: Role; email: string };
+  user?: {
+    id: string;
+    role: Role;
+    email: string;
+  };
 };
 
 const issueToken = (user: any) =>
@@ -70,16 +79,99 @@ function roles(...allowed: Role[]) {
     if (!req.user || !allowed.includes(req.user.role)) {
       return res.status(403).json({ error: "Access denied" });
     }
-
     next();
   };
 }
 
 const admin = [authenticate, roles(Role.ADMIN)];
+const customer = [authenticate, roles(Role.CUSTOMER)];
 const partner = [authenticate, roles(Role.PARTNER)];
 
+const randomOtp = () =>
+  crypto.randomInt(100000, 1000000).toString();
+
+const otpHash = (otp: string) =>
+  crypto.createHash("sha256").update(otp).digest("hex");
+
+const otpEncryptionKey = () =>
+  crypto.createHash("sha256").update(SECRET).digest();
+
+function encryptOtp(otp: string) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv(
+    "aes-256-gcm",
+    otpEncryptionKey(),
+    iv
+  );
+
+  const encrypted = Buffer.concat([
+    cipher.update(otp, "utf8"),
+    cipher.final()
+  ]);
+
+  const tag = cipher.getAuthTag();
+
+  return [
+    iv.toString("hex"),
+    tag.toString("hex"),
+    encrypted.toString("hex")
+  ].join(".");
+}
+
+function decryptOtp(value: string | null) {
+  if (!value) return null;
+
+  try {
+    const [ivHex, tagHex, encryptedHex] = value.split(".");
+    const decipher = crypto.createDecipheriv(
+      "aes-256-gcm",
+      otpEncryptionKey(),
+      Buffer.from(ivHex, "hex")
+    );
+
+    decipher.setAuthTag(Buffer.from(tagHex, "hex"));
+
+    return Buffer.concat([
+      decipher.update(Buffer.from(encryptedHex, "hex")),
+      decipher.final()
+    ]).toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+function safeEqual(a: string, b: string) {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+
+  return left.length === right.length &&
+    crypto.timingSafeEqual(left, right);
+}
+
+function publicOrder(order: any, includeOtp = false) {
+  const result: any = { ...order };
+
+  delete result.deliveryOtpHash;
+  delete result.deliveryOtpCipher;
+
+  if (includeOtp) {
+    result.deliveryOtp = decryptOtp(order.deliveryOtpCipher);
+  }
+
+  return result;
+}
+
+async function getApprovedPartner(userId: string) {
+  return db.deliveryPartner.findUnique({
+    where: { userId }
+  });
+}
+
 app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", service: "HØmy API" });
+  res.json({
+    status: "ok",
+    service: "HØmy API"
+  });
 });
 
 /* AUTHENTICATION */
@@ -98,7 +190,9 @@ app.post("/api/auth/register", async (req, res) => {
     });
 
     if (existing) {
-      return res.status(409).json({ error: "Email already registered" });
+      return res.status(409).json({
+        error: "Email already registered"
+      });
     }
 
     const user = await db.user.create({
@@ -118,10 +212,15 @@ app.post("/api/auth/register", async (req, res) => {
       }
     });
 
-    res.status(201).json({ token: issueToken(user), user });
+    res.status(201).json({
+      token: issueToken(user),
+      user
+    });
   } catch (error) {
     res.status(400).json({
-      error: error instanceof Error ? error.message : "Registration failed"
+      error: error instanceof Error
+        ? error.message
+        : "Registration failed"
     });
   }
 });
@@ -137,8 +236,13 @@ app.post("/api/auth/login", async (req, res) => {
       where: { email: data.email }
     });
 
-    if (!user || !(await bcrypt.compare(data.password, user.passwordHash))) {
-      return res.status(401).json({ error: "Invalid email or password" });
+    if (!user || !(await bcrypt.compare(
+      data.password,
+      user.passwordHash
+    ))) {
+      return res.status(401).json({
+        error: "Invalid email or password"
+      });
     }
 
     res.json({
@@ -158,10 +262,19 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-app.get("/api/auth/me", authenticate, async (req: RequestWithUser, res) => {
+app.get("/api/auth/me", authenticate, async (
+  req: RequestWithUser,
+  res
+) => {
   const user = await db.user.findUnique({
     where: { id: req.user!.id },
-    select: { id: true, name: true, email: true, phone: true, role: true }
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone: true,
+      role: true
+    }
   });
 
   if (!user) {
@@ -171,7 +284,7 @@ app.get("/api/auth/me", authenticate, async (req: RequestWithUser, res) => {
   res.json({ user });
 });
 
-/* CUSTOMER PRODUCT CATALOGUE */
+/* CUSTOMER CATALOGUE */
 
 app.get("/api/products", async (req, res) => {
   const type = req.query.type;
@@ -179,7 +292,9 @@ app.get("/api/products", async (req, res) => {
   const products = await db.product.findMany({
     where: {
       isAvailable: true,
-      ...(type === "VEG" || type === "NON_VEG" ? { type } : {})
+      ...(type === "VEG" || type === "NON_VEG"
+        ? { type }
+        : {})
     },
     include: {
       ingredients: { orderBy: { sortOrder: "asc" } },
@@ -192,25 +307,34 @@ app.get("/api/products", async (req, res) => {
 });
 
 app.get("/api/products/:id", async (req, res) => {
-  const id = String(req.params.id);
-
   const product = await db.product.findFirst({
-    where: { id, isAvailable: true },
-    include: { ingredients: true, images: true }
+    where: {
+      id: String(req.params.id),
+      isAvailable: true
+    },
+    include: {
+      ingredients: { orderBy: { sortOrder: "asc" } },
+      images: { orderBy: { sortOrder: "asc" } }
+    }
   });
 
   if (!product) {
-    return res.status(404).json({ error: "Product not found" });
+    return res.status(404).json({
+      error: "Product not found"
+    });
   }
 
   res.json({ product });
 });
 
-/* ADMIN PRODUCTS */
+/* ADMIN PRODUCT MANAGEMENT */
 
 app.get("/api/admin/products", ...admin, async (_req, res) => {
   const products = await db.product.findMany({
-    include: { ingredients: true, images: true },
+    include: {
+      ingredients: { orderBy: { sortOrder: "asc" } },
+      images: { orderBy: { sortOrder: "asc" } }
+    },
     orderBy: { createdAt: "desc" }
   });
 
@@ -226,11 +350,11 @@ const productSchema = z.object({
   imageUrl: z.string().url(),
   servings: z.number().int().min(1).max(30).default(2),
   prepMinutes: z.number().int().min(1).max(240).default(25),
-  isAvailable: z.boolean().default(true),
+  isAvailable: z.boolean().default(false),
   ingredients: z.array(z.object({
     name: z.string().min(1),
     quantity: z.string().min(1),
-    imageUrl: z.string().optional()
+    imageUrl: z.string().url().optional()
   })).default([]),
   images: z.array(z.string().url()).default([])
 });
@@ -263,13 +387,18 @@ app.post("/api/admin/products", ...admin, async (req, res) => {
           }))
         }
       },
-      include: { ingredients: true, images: true }
+      include: {
+        ingredients: true,
+        images: true
+      }
     });
 
     res.status(201).json({ product });
   } catch (error) {
     res.status(400).json({
-      error: error instanceof Error ? error.message : "Product creation failed"
+      error: error instanceof Error
+        ? error.message
+        : "Product creation failed"
     });
   }
 });
@@ -313,7 +442,10 @@ app.put("/api/admin/products/:id", ...admin, async (req, res) => {
             }))
           }
         },
-        include: { ingredients: true, images: true }
+        include: {
+          ingredients: true,
+          images: true
+        }
       });
     });
 
@@ -325,113 +457,132 @@ app.put("/api/admin/products/:id", ...admin, async (req, res) => {
   }
 });
 
-app.patch("/api/admin/products/:id/availability", ...admin, async (req, res) => {
-  try {
-    const { isAvailable } = z.object({
-      isAvailable: z.boolean()
-    }).parse(req.body);
-
-    const id = String(req.params.id);
-
-    const product = await db.product.update({
-      where: { id },
-      data: { isAvailable }
-    });
-
-    res.json({ product });
-  } catch {
-    res.status(404).json({ error: "Product not found" });
-  }
-});
-
-/* CUSTOMER ORDERS */
-
-app.post(
-  "/api/orders",
-  authenticate,
-  roles(Role.CUSTOMER),
-  async (req: RequestWithUser, res) => {
+app.patch(
+  "/api/admin/products/:id/availability",
+  ...admin,
+  async (req, res) => {
     try {
-      const data = z.object({
-        address: z.string().min(8).max(500),
-        latitude: z.number().optional(),
-        longitude: z.number().optional(),
-        note: z.string().max(500).optional(),
-        paymentMethod: z.enum(["COD", "UPI"]).default("COD"),
-        items: z.array(z.object({
-          productId: z.string(),
-          quantity: z.number().int().min(1).max(30)
-        })).min(1)
+      const { isAvailable } = z.object({
+        isAvailable: z.boolean()
       }).parse(req.body);
 
-      if (data.paymentMethod === "UPI" && !process.env.UPI_ID) {
-        return res.status(400).json({ error: "UPI is not configured" });
-      }
-
-      const ids = [...new Set(data.items.map(i => i.productId))];
-
-      const products = await db.product.findMany({
-        where: { id: { in: ids }, isAvailable: true }
+      const product = await db.product.update({
+        where: { id: String(req.params.id) },
+        data: { isAvailable }
       });
 
-      if (products.length !== ids.length) {
-        return res.status(400).json({ error: "A product is unavailable" });
-      }
-
-      const lookup = new Map(products.map(p => [p.id, p]));
-
-      const subtotal = data.items.reduce(
-        (sum, item) =>
-          sum + lookup.get(item.productId)!.pricePaise * item.quantity,
-        0
-      );
-
-      const delivery = subtotal >= 49900 ? 0 : 3900;
-
-      const order = await db.order.create({
-        data: {
-          orderNumber:
-            "HOMY-" + crypto.randomBytes(4).toString("hex").toUpperCase(),
-          userId: req.user!.id,
-          subtotalPaise: subtotal,
-          deliveryPaise: delivery,
-          totalPaise: subtotal + delivery,
-          paymentMethod: data.paymentMethod,
-          paymentStatus: "PENDING",
-          address: data.address,
-          latitude: data.latitude,
-          longitude: data.longitude,
-          customerNote: data.note,
-          items: {
-            create: data.items.map(item => ({
-              productId: item.productId,
-              productName: lookup.get(item.productId)!.name,
-              quantity: item.quantity,
-              unitPricePaise: lookup.get(item.productId)!.pricePaise
-            }))
-          }
-        },
-        include: { items: true }
-      });
-
-      res.status(201).json({
-        order,
-        payment: data.paymentMethod === "UPI"
-          ? {
-              upiId: process.env.UPI_ID,
-              status: "AWAITING_VERIFICATION"
-            }
-          : { status: "PAY_ON_DELIVERY" }
-      });
-    } catch (error) {
-      res.status(400).json({
-        error: error instanceof Error ? error.message : "Order failed"
+      res.json({ product });
+    } catch {
+      res.status(404).json({
+        error: "Product not found"
       });
     }
   }
 );
 
-app.get("/api/orders/mine", authenticate, async (req: RequestWithUser, res) => {
+/* CUSTOMER ORDERS */
+
+app.post("/api/orders", ...customer, async (
+  req: RequestWithUser,
+  res
+) => {
+  try {
+    const data = z.object({
+      address: z.string().min(8).max(500),
+      latitude: z.number().min(-90).max(90).optional(),
+      longitude: z.number().min(-180).max(180).optional(),
+      note: z.string().max(500).optional(),
+      paymentMethod: z.enum(["COD", "UPI"]).default("COD"),
+      items: z.array(z.object({
+        productId: z.string(),
+        quantity: z.number().int().min(1).max(30)
+      })).min(1)
+    }).parse(req.body);
+
+    if (data.paymentMethod === "UPI" && !process.env.UPI_ID) {
+      return res.status(400).json({
+        error: "UPI is not configured"
+      });
+    }
+
+    const ids = [...new Set(data.items.map(i => i.productId))];
+
+    const products = await db.product.findMany({
+      where: {
+        id: { in: ids },
+        isAvailable: true
+      }
+    });
+
+    if (products.length !== ids.length) {
+      return res.status(400).json({
+        error: "A product is unavailable"
+      });
+    }
+
+    const lookup = new Map(products.map(p => [p.id, p]));
+
+    const subtotal = data.items.reduce(
+      (sum, item) =>
+        sum + lookup.get(item.productId)!.pricePaise * item.quantity,
+      0
+    );
+
+    const delivery = subtotal >= 49900 ? 0 : 3900;
+    const otp = randomOtp();
+
+    const order = await db.order.create({
+      data: {
+        orderNumber:
+          "HOMY-" + crypto.randomBytes(4).toString("hex").toUpperCase(),
+        userId: req.user!.id,
+        status: OrderStatus.PREPARING,
+        subtotalPaise: subtotal,
+        deliveryPaise: delivery,
+        totalPaise: subtotal + delivery,
+        paymentMethod: data.paymentMethod,
+        paymentStatus: "PENDING",
+        address: data.address,
+        latitude: data.latitude,
+        longitude: data.longitude,
+        customerNote: data.note,
+        deliveryOtpHash: otpHash(otp),
+        deliveryOtpCipher: encryptOtp(otp),
+        items: {
+          create: data.items.map(item => ({
+            productId: item.productId,
+            productName: lookup.get(item.productId)!.name,
+            quantity: item.quantity,
+            unitPricePaise: lookup.get(item.productId)!.pricePaise
+          }))
+        }
+      },
+      include: { items: true }
+    });
+
+    res.status(201).json({
+      order: {
+        ...publicOrder(order),
+        deliveryOtp: otp
+      },
+      payment: data.paymentMethod === "UPI"
+        ? {
+            upiId: process.env.UPI_ID,
+            status: "AWAITING_VERIFICATION"
+          }
+        : { status: "PAY_ON_DELIVERY" }
+    });
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Order failed"
+    });
+  }
+});
+
+app.get("/api/orders/mine", ...customer, async (
+  req: RequestWithUser,
+  res
+) => {
   const orders = await db.order.findMany({
     where: { userId: req.user!.id },
     include: {
@@ -439,31 +590,41 @@ app.get("/api/orders/mine", authenticate, async (req: RequestWithUser, res) => {
       tracking: {
         orderBy: { createdAt: "desc" },
         take: 1
+      },
+      assignedPartner: {
+        include: {
+          user: {
+            select: { name: true, phone: true }
+          }
+        }
       }
     },
     orderBy: { createdAt: "desc" }
   });
 
-  res.json({ orders });
+  res.json({
+    orders: orders.map(order => publicOrder(order, true))
+  });
 });
 
 app.post(
   "/api/orders/:id/cancel",
-  authenticate,
+  ...customer,
   async (req: RequestWithUser, res) => {
-    const id = String(req.params.id);
-
     const order = await db.order.findFirst({
-      where: { id, userId: req.user!.id }
+      where: {
+        id: String(req.params.id),
+        userId: req.user!.id
+      }
     });
 
     if (!order) {
       return res.status(404).json({ error: "Order not found" });
     }
 
-    if (!["PLACED", "CONFIRMED"].includes(order.status)) {
+    if (order.status !== "PREPARING") {
       return res.status(400).json({
-        error: "Order cannot be cancelled now"
+        error: "This order can no longer be cancelled"
       });
     }
 
@@ -472,19 +633,45 @@ app.post(
       data: { status: "CANCELLED" }
     });
 
-    res.json({ order: updated });
+    res.json({ order: publicOrder(updated) });
   }
 );
 
 /* ADMIN DASHBOARD */
 
 app.get("/api/admin/summary", ...admin, async (_req, res) => {
-  const [orders, products, customers, revenue] = await Promise.all([
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+
+  const [
+    orders,
+    products,
+    customers,
+    revenue,
+    todayOrders,
+    todayRevenue
+  ] = await Promise.all([
     db.order.count(),
     db.product.count({ where: { isAvailable: true } }),
     db.user.count({ where: { role: Role.CUSTOMER } }),
     db.order.aggregate({
       where: { status: { not: "CANCELLED" } },
+      _sum: { totalPaise: true }
+    }),
+    db.order.count({
+      where: {
+        createdAt: { gte: start, lt: end },
+        status: { not: "CANCELLED" }
+      }
+    }),
+    db.order.aggregate({
+      where: {
+        createdAt: { gte: start, lt: end },
+        status: { not: "CANCELLED" }
+      },
       _sum: { totalPaise: true }
     })
   ]);
@@ -493,7 +680,9 @@ app.get("/api/admin/summary", ...admin, async (_req, res) => {
     orders,
     products,
     customers,
-    revenuePaise: revenue._sum.totalPaise || 0
+    revenuePaise: revenue._sum.totalPaise || 0,
+    todayOrders,
+    todayRevenuePaise: todayRevenue._sum.totalPaise || 0
   });
 });
 
@@ -515,58 +704,112 @@ app.get("/api/admin/orders", ...admin, async (_req, res) => {
     orderBy: { createdAt: "desc" }
   });
 
-  res.json({ orders });
+  res.json({
+    orders: orders.map(order => publicOrder(order))
+  });
 });
 
-app.patch("/api/admin/orders/:id/status", ...admin, async (req, res) => {
-  try {
-    const { status } = z.object({
-      status: z.nativeEnum(OrderStatus)
-    }).parse(req.body);
+app.patch(
+  "/api/admin/orders/:id/status",
+  ...admin,
+  async (req, res) => {
+    try {
+      const { status } = z.object({
+        status: z.nativeEnum(OrderStatus)
+      }).parse(req.body);
 
-    const id = String(req.params.id);
+      const id = String(req.params.id);
 
-    const order = await db.order.findUnique({
-      where: { id }
-    });
+      const order = await db.order.findUnique({
+        where: { id }
+      });
 
-    if (!order) {
-      return res.status(404).json({ error: "Order not found" });
+      if (!order) {
+        return res.status(404).json({
+          error: "Order not found"
+        });
+      }
+
+      const allowed =
+        (order.status === "PREPARING" && status === "CANCELLED") ||
+        (order.status === "PLACED" && status === "PREPARING") ||
+        (order.status === "CONFIRMED" && status === "PREPARING");
+
+      if (!allowed) {
+        return res.status(400).json({
+          error: "Invalid status change"
+        });
+      }
+
+      const updated = await db.order.update({
+        where: { id },
+        data: { status }
+      });
+
+      res.json({ order: publicOrder(updated) });
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ? error.message : "Invalid status"
+      });
     }
-
-    const transitions: Record<OrderStatus, OrderStatus[]> = {
-      PLACED: ["CONFIRMED", "CANCELLED"],
-      CONFIRMED: ["PREPARING", "CANCELLED"],
-      PREPARING: ["OUT_FOR_DELIVERY", "CANCELLED"],
-      OUT_FOR_DELIVERY: ["DELIVERED"],
-      DELIVERED: [],
-      CANCELLED: []
-    };
-
-    if (!transitions[order.status].includes(status)) {
-      return res.status(400).json({ error: "Invalid status transition" });
-    }
-
-    const updated = await db.order.update({
-      where: { id: order.id },
-      data: { status }
-    });
-
-    res.json({ order: updated });
-  } catch (error) {
-    res.status(400).json({
-      error: error instanceof Error ? error.message : "Invalid status"
-    });
   }
+);
+
+/* DAILY SALES AND ORDER ARCHIVING */
+
+app.get("/api/admin/daily-report", ...admin, async (req, res) => {
+  const dateValue = String(req.query.date || "");
+
+  const start = dateValue
+    ? new Date(`${dateValue}T00:00:00`)
+    : new Date();
+
+  if (Number.isNaN(start.getTime())) {
+    return res.status(400).json({ error: "Invalid date" });
+  }
+
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+
+  const orders = await db.order.findMany({
+    where: {
+      createdAt: { gte: start, lt: end },
+      status: { not: "CANCELLED" }
+    },
+    select: {
+      id: true,
+      orderNumber: true,
+      totalPaise: true,
+      paymentMethod: true,
+      paymentStatus: true,
+      status: true,
+      createdAt: true
+    },
+    orderBy: { createdAt: "desc" }
+  });
+
+  res.json({
+    date: start.toISOString().slice(0, 10),
+    orderCount: orders.length,
+    salesPaise: orders.reduce((sum, o) => sum + o.totalPaise, 0),
+    orders
+  });
 });
 
-/* DELIVERY PARTNERS */
+/* DELIVERY PARTNER ADMINISTRATION */
 
 app.get("/api/admin/partners", ...admin, async (_req, res) => {
   const partners = await db.deliveryPartner.findMany({
     include: {
       user: {
-        select: { id: true, name: true, email: true, phone: true }
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true
+        }
       }
     },
     orderBy: { createdAt: "desc" }
@@ -578,10 +821,10 @@ app.get("/api/admin/partners", ...admin, async (_req, res) => {
 app.post("/api/admin/partners", ...admin, async (req, res) => {
   try {
     const data = z.object({
-      name: z.string().min(2),
+      name: z.string().min(2).max(80),
       email: z.string().email().transform(v => v.toLowerCase()),
-      phone: z.string().min(8),
-      password: z.string().min(8),
+      phone: z.string().min(8).max(20),
+      password: z.string().min(8).max(100),
       vehicleType: z.string().optional(),
       vehicleNumber: z.string().optional()
     }).parse(req.body);
@@ -591,7 +834,9 @@ app.post("/api/admin/partners", ...admin, async (req, res) => {
     });
 
     if (existing) {
-      return res.status(409).json({ error: "Email already exists" });
+      return res.status(409).json({
+        error: "Email already exists"
+      });
     }
 
     const created = await db.user.create({
@@ -615,18 +860,45 @@ app.post("/api/admin/partners", ...admin, async (req, res) => {
         email: true,
         phone: true,
         partner: true
-      }
     });
 
     res.status(201).json({ partner: created });
   } catch (error) {
     res.status(400).json({
-      error: error instanceof Error ? error.message : "Partner creation failed"
+      error: error instanceof Error
+        ? error.message
+        : "Partner creation failed"
     });
   }
 });
 
-app.post("/api/admin/orders/:id/assign", ...admin, async (req, res) => {
+app.patch(
+  "/api/admin/partners/:id/status",
+  ...admin,
+  async (req, res) => {
+    try {
+      const { status } = z.object({
+        status: z.nativeEnum(PartnerStatus)
+      }).parse(req.body);
+
+      const updated = await db.deliveryPartner.update({
+        where: { id: String(req.params.id) },
+        data: { status }
+      });
+
+      res.json({ partner: updated });
+    } catch {
+      res.status(404).json({
+        error: "Partner not found"
+      });
+    }
+  }
+);
+
+app.post("/api/admin/orders/:id/assign", ...admin, async (
+  req,
+  res
+) => {
   try {
     const { partnerId } = z.object({
       partnerId: z.string()
@@ -647,28 +919,78 @@ app.post("/api/admin/orders/:id/assign", ...admin, async (req, res) => {
 
     const id = String(req.params.id);
 
-    const order = await db.order.update({
-      where: { id },
-      data: { assignedPartnerId: deliveryPartner.id }
+    const order = await db.order.findUnique({
+      where: { id }
     });
 
-    res.json({ order });
-  } catch {
-    res.status(404).json({
-      error: "Order or partner not found"
+    if (!order || order.status !== "PREPARING") {
+      return res.status(400).json({
+        error: "Only preparing orders can be assigned"
+      });
+    }
+
+    const updated = await db.order.update({
+      where: { id },
+      data: {
+        assignedPartnerId: deliveryPartner.id,
+        partnerAcceptedAt: null
+      }
+    });
+
+    res.json({ order: publicOrder(updated) });
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error
+        ? error.message
+        : "Assignment failed"
     });
   }
 });
 
-/* PARTNER ORDERS AND GPS */
+/* PARTNER ORDERS */
 
-app.get(
-  "/api/partner/orders",
+app.get("/api/partner/orders", ...partner, async (
+  req: RequestWithUser,
+  res
+) => {
+  const p = await getApprovedPartner(req.user!.id);
+
+  if (!p || p.status !== "APPROVED") {
+    return res.status(403).json({
+      error: "Partner account not approved"
+    });
+  }
+
+  const orders = await db.order.findMany({
+    where: { assignedPartnerId: p.id },
+    include: {
+      items: true,
+      user: {
+        select: { name: true, phone: true }
+      }
+    },
+    orderBy: { createdAt: "desc" }
+  });
+
+  // The partner does not receive order totals or OTPs.
+  res.json({
+    orders: orders.map(order => {
+      const safe: any = publicOrder(order);
+      delete safe.totalPaise;
+      delete safe.subtotalPaise;
+      delete safe.deliveryPaise;
+      return safe;
+    })
+  });
+});
+
+/* PARTNER ACCEPTS ASSIGNED ORDER */
+
+app.post(
+  "/api/partner/orders/:id/accept",
   ...partner,
   async (req: RequestWithUser, res) => {
-    const p = await db.deliveryPartner.findUnique({
-      where: { userId: req.user!.id }
-    });
+    const p = await getApprovedPartner(req.user!.id);
 
     if (!p || p.status !== "APPROVED") {
       return res.status(403).json({
@@ -676,20 +998,210 @@ app.get(
       });
     }
 
-    const orders = await db.order.findMany({
-      where: { assignedPartnerId: p.id },
-      include: {
-        items: true,
-        user: {
-          select: { name: true, phone: true }
-        }
-      },
-      orderBy: { createdAt: "desc" }
+    const order = await db.order.findFirst({
+      where: {
+        id: String(req.params.id),
+        assignedPartnerId: p.id,
+        status: "PREPARING"
+      }
     });
 
-    res.json({ orders });
+    if (!order) {
+      return res.status(404).json({
+        error: "Assigned order not available"
+      });
+    }
+
+    const updated = await db.order.updateMany({
+      where: {
+        id: order.id,
+        assignedPartnerId: p.id,
+        status: "PREPARING",
+        partnerAcceptedAt: null
+      },
+      data: {
+        partnerAcceptedAt: new Date()
+      }
+    });
+
+    if (!updated.count) {
+      return res.status(409).json({
+        error: "Order has already been accepted"
+      });
+    }
+
+    res.json({ success: true });
   }
 );
+
+/* PARTNER STARTS DELIVERY */
+
+app.post(
+  "/api/partner/orders/:id/start",
+  ...partner,
+  async (req: RequestWithUser, res) => {
+    const p = await getApprovedPartner(req.user!.id);
+
+    if (!p || p.status !== "APPROVED") {
+      return res.status(403).json({
+        error: "Partner account not approved"
+      });
+    }
+
+    const id = String(req.params.id);
+
+    const updated = await db.order.updateMany({
+      where: {
+        id,
+        assignedPartnerId: p.id,
+        status: "PREPARING",
+        partnerAcceptedAt: { not: null }
+      },
+      data: {
+        status: "OUT_FOR_DELIVERY"
+      }
+    });
+
+    if (!updated.count) {
+      return res.status(400).json({
+        error: "Accept this assigned order before starting delivery"
+      });
+    }
+
+    res.json({ success: true });
+  }
+);
+
+/* COMPATIBILITY STATUS ROUTE: ONLY START DELIVERY */
+
+app.patch(
+  "/api/partner/orders/:id/status",
+  ...partner,
+  async (req: RequestWithUser, res) => {
+    const parsed = z.object({
+      status: z.literal("OUT_FOR_DELIVERY")
+    }).safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Delivery completion requires customer OTP verification"
+      });
+    }
+
+    const p = await 
+getApprovedPartner(req.user!.id);
+
+    if (!p || p.status !== "APPROVED") {
+      return res.status(403).json({
+        error: "Partner account not approved"
+      });
+    }
+
+    const updated = await db.order.updateMany({
+      where: {
+        id: String(req.params.id),
+        assignedPartnerId: p.id,
+        status: "PREPARING",
+        partnerAcceptedAt: { not: null }
+      },
+      data: { status: "OUT_FOR_DELIVERY" }
+    });
+
+    if (!updated.count) {
+      return res.status(400).json({
+        error: "Accept the order before starting delivery"
+      });
+    }
+
+    res.json({ success: true });
+  }
+);
+
+/* PARTNER ENTERS CUSTOMER OTP TO COMPLETE DELIVERY */
+
+app.post(
+  "/api/partner/orders/:id/verify-otp",
+  ...partner,
+  async (req: RequestWithUser, res) => {
+    try {
+      const { otp } = z.object({
+        otp: z.string().regex(/^\d{6}$/)
+      }).parse(req.body);
+
+      const p = await getApprovedPartner(req.user!.id);
+
+      if (!p || p.status !== "APPROVED") {
+        return res.status(403).json({
+          error: "Partner account not approved"
+        });
+      }
+
+      const id = String(req.params.id);
+
+      const order = await db.order.findFirst({
+        where: {
+          id,
+          assignedPartnerId: p.id,
+          status: "OUT_FOR_DELIVERY"
+        }
+      });
+
+      if (!order) {
+        return res.status(404).json({
+          error: "Active delivery not found"
+        });
+      }
+
+      if (!order.deliveryOtpHash ||
+          !safeEqual(otpHash(otp), order.deliveryOtpHash)) {
+        return res.status(400).json({
+          error: "Incorrect delivery OTP"
+        });
+      }
+
+      const updated = await db.order.updateMany({
+        where: {
+          id: order.id,
+          assignedPartnerId: p.id,
+          status: "OUT_FOR_DELIVERY",
+          deliveryOtpHash: order.deliveryOtpHash
+        },
+        data: {
+          status: "DELIVERED",
+          deliveredAt: new Date(),
+          deliveryOtpHash: null,
+          deliveryOtpCipher: null
+        }
+      });
+
+      if (!updated.count) {
+        return res.status(409).json({
+          error: "Order was already completed"
+        });
+      }
+
+      // The order value is released to the partner only after OTP success.
+      res.json({
+        success: true,
+        order: {
+          id: order.id,
+          orderNumber: order.orderNumber,
+          status: "DELIVERED",
+          totalPaise: order.totalPaise,
+          paymentMethod: order.paymentMethod
+        }
+      });
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error
+          ? error.message
+          : "OTP verification failed"
+      });
+    }
+  }
+);
+
+/* PARTNER LOCATION */
 
 app.post(
   "/api/partner/location",
@@ -701,9 +1213,7 @@ app.post(
         longitude: z.number().min(-180).max(180)
       }).parse(req.body);
 
-      const p = await db.deliveryPartner.findUnique({
-        where: { userId: req.user!.id }
-      });
+      const p = await getApprovedPartner(req.user!.id);
 
       if (!p || p.status !== "APPROVED") {
         return res.status(403).json({
@@ -730,8 +1240,8 @@ app.post(
 
       if (active.length) {
         await db.orderTracking.createMany({
-          data: active.map(o => ({
-            orderId: o.id,
+          data: active.map(order => ({
+            orderId: order.id,
             partnerId: p.id,
             latitude: data.latitude,
             longitude: data.longitude
@@ -750,113 +1260,62 @@ app.post(
   }
 );
 
-app.patch(
-  "/api/partner/orders/:id/status",
-  ...partner,
-  async (req: RequestWithUser, res) => {
-    try {
-      const { status } = z.object({
-        status: z.enum(["OUT_FOR_DELIVERY", "DELIVERED"])
-      }).parse(req.body);
-
-      const p = await db.deliveryPartner.findUnique({
-        where: { userId: req.user!.id }
-      });
-
-      if (!p) {
-        return res.status(403).json({ error: "Partner not found" });
-      }
-
-      const id = String(req.params.id);
-
-      const order = await db.order.findFirst({
-        where: {
-          id,
-          assignedPartnerId: p.id
-        }
-      });
-
-      if (!order) {
-        return res.status(404).json({
-          error: "Order not assigned to you"
-        });
-      }
-
-      const valid =
-        (status === "OUT_FOR_DELIVERY" && order.status === "PREPARING") ||
-        (status === "DELIVERED" && order.status === "OUT_FOR_DELIVERY");
-
-      if (!valid) {
-        return res.status(400).json({
-          error: "Invalid order transition"
-        });
-      }
-
-      const updated = await db.order.update({
-        where: { id: order.id },
-        data: { status }
-      });
-
-      res.json({ order: updated });
-   } catch (error) {
-       res.status(400).json({
-         error: error instanceof Error
-           ? error.message
-           : "Status update failed"
-      });
-    }
-  }
-);
-
-/* CUSTOMER ORDER TRACKING */
+/* CUSTOMER LIVE TRACKING */
 
 app.get(
   "/api/orders/:id/tracking",
-  authenticate,
+  ...customer,
   async (req: RequestWithUser, res) => {
-    const id = String(req.params.id);
-
     const order = await db.order.findFirst({
       where: {
-        id,
+        id: String(req.params.id),
         userId: req.user!.id
       },
       select: {
         id: true,
         status: true,
-        assignedPartnerId: true
+        assignedPartner: {
+          select: {
+            latitude: true,
+            longitude: true,
+            lastLocationAt: true,
+            user: {
+              select: {
+                name: true,
+                phone: true
+              }
+            }
+          }
+        }
       }
     });
 
     if (!order) {
-      return res.status(404).json({ error: "Order not found" });
+      return res.status(404).json({
+        error: "Order not found"
+      });
     }
 
-    const deliveryPartner = order.assignedPartnerId
-      ? await db.deliveryPartner.findUnique({
-          where: { id: order.assignedPartnerId },
-          select: {
-            latitude: true,
-            longitude: true,
-            lastLocationAt: true
-          }
-        })
-      : null;
+    const p = order.assignedPartner;
 
     res.json({
       status: order.status,
-      location: deliveryPartner?.latitude != null
+      partner: p ? {
+        name: p.user.name,
+        phone: p.user.phone
+      } : null,
+      location: p?.latitude != null && p.longitude != null
         ? {
-            latitude: deliveryPartner.latitude,
-            longitude: deliveryPartner.longitude,
-            updatedAt: deliveryPartner.lastLocationAt
+            latitude: p.latitude,
+            longitude: p.longitude,
+            updatedAt: p.lastLocationAt
           }
         : null
     });
   }
 );
 
-/* ERROR HANDLER */
+/* SERVER ERROR HANDLING */
 
 app.use((
   error: any,
@@ -865,7 +1324,9 @@ app.use((
   _next: express.NextFunction
 ) => {
   console.error(error);
-  res.status(500).json({ error: "Internal server error" });
+  res.status(500).json({
+    error: "Internal server error"
+  });
 });
 
 app.listen(PORT, () => {
