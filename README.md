@@ -1,3 +1,4 @@
+
 # HØmy
 
 South Indian meal-kit ordering platform.
@@ -12,7 +13,7 @@ South Indian meal-kit ordering platform.
 
 ## Backend
 
-Environment variables:
+Required environment variables:
 
 - DATABASE_URL
 - JWT_SECRET
@@ -31,13 +32,13 @@ Build the API:
 
 The API listens on the Render-provided PORT.
 
-## Admin
+## Admin website
 
 Build:
 
     npm run build:admin
 
-Set VITE_API_URL to the API URL plus /api.
+Set VITE_API_URL to your API URL plus /api.
 
 ## Customer website
 
@@ -45,7 +46,7 @@ Build:
 
     npm run build:customer
 
-Set VITE_API_URL to the API URL plus /api.
+Set VITE_API_URL to your API URL plus /api.
 
 ## Partner dashboard
 
@@ -53,7 +54,7 @@ Build:
 
     npm run build:partner
 
-Set VITE_API_URL to the API URL plus /api.
+Set VITE_API_URL to your API URL plus /api.
 
 ## Android customer application
 
