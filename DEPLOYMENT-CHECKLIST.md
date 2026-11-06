@@ -1,3 +1,4 @@
+
 # HØmy Deployment Checklist
 
 ## 1. PostgreSQL
@@ -50,8 +51,7 @@ Use a unique admin password of at least 12 characters.
 
 ## 6. Admin account
 
-After the API is deployed and the database is ready, run the seed script
-once in an environment with the production database connection:
+After the API is deployed and the database is ready, run the seed script once in an environment with the production database connection:
 
     npm run prisma:seed --workspace=@homy/api
 
@@ -69,9 +69,9 @@ From apps/mobile, install dependencies and build the Android APK with EAS.
 - COD order placement
 - Order status updates
 - Partner account sign-in
-- Partner assignment
+- Partner assignment and acceptance
+- OTP delivery verification
 - Location permission and GPS update
 - Customer order history
 
-Do not advertise UPI as available until a real payment provider and
-payment verification workflow are configured.
+Do not advertise UPI as available until a real payment provider and payment verification workflow are configured.
