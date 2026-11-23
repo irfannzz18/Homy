@@ -6,6 +6,7 @@ import helmet from "helmet";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import path from "path";
 import {
   PrismaClient,
   Role,
@@ -328,6 +329,14 @@ app.get("/api/products/:id", async (req, res) => {
 });
 
 /* ADMIN PRODUCT MANAGEMENT */
+app.patch("/api/admin/products/:id", ...admin, async (req, res) => {
+  try {
+    const data = z.object({ isAvailable: z.boolean() }).parse(req.body);
+    const product = await db.product.update({ where: { id: String(req.params.id) }, data: { isAvailable: data.isAvailable } });
+    res.json({ product });
+  } catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : "Product update failed" }); }
+});
+
 
 app.get("/api/admin/products", ...admin, async (_req, res) => {
   const products = await db.product.findMany({
@@ -860,6 +869,7 @@ app.post("/api/admin/partners", ...admin, async (req, res) => {
         email: true,
         phone: true,
         partner: true
+      }
     });
 
     res.status(201).json({ partner: created });
@@ -1314,6 +1324,8 @@ app.get(
     });
   }
 );
+
+app.use(express.static(path.resolve(process.cwd(), "public")));
 
 /* SERVER ERROR HANDLING */
 
