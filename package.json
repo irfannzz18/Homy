@@ -1,6 +1,6 @@
 {
   "name": "homy",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
   "workspaces": [
     "apps/api",
@@ -9,9 +9,14 @@
     "apps/partner"
   ],
   "scripts": {
+    "prepare:api": "node scripts/prepare.js",
     "build:api": "npm run build --workspace=@homy/api",
     "build:admin": "npm run build --workspace=@homy/admin",
     "build:customer": "npm run build --workspace=@homy/customer-web",
-    "build:partner": "npm run build --workspace=@homy/partner"
+    "build:partner": "npm run build --workspace=@homy/partner",
+    "build:all": "npm run build:admin && npm run build:customer && npm run build:partner && npm run build:api",
+    "db:push": "npm run prisma:migrate --workspace=@homy/api",
+    "seed": "node scripts/seed.js",
+    "start": "npm run start --workspace=@homy/api"
   }
 }
