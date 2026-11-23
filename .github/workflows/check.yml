@@ -14,4 +14,4 @@ jobs:
           node-version: 22
       - run: node --check public/app.js
       - run: npm install --include=dev --no-audit --no-fund
-      - run: npm run build:api
+      - run: npm run build
