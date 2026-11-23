@@ -171,14 +171,7 @@ replaceOnce(`              {o.assignedPartner?.latitude != null &&
                     style={{ width: "100%", height: 220, border: 0, borderRadius: 12 }} />
                 </div>
               )}`, 'customer embedded map');
-replaceOnce(`      await call(`/partner/orders/${order.id}/start`, {
-        method: "POST"
-      });
-      await loadOrders();`, `      await call(`/partner/orders/${order.id}/start`, {
-        method: "POST"
-      });
-      await loadOrders();
-      sendLocation();`, 'start partner GPS after delivery begins');
+replaceOnce('      await call(`/partner/orders/${order.id}/start`, {\n        method: "POST"\n      });\n      await loadOrders();', '      await call(`/partner/orders/${order.id}/start`, {\n        method: "POST"\n      });\n      await loadOrders();\n      sendLocation();', 'start partner GPS after delivery begins');
 replaceOnce('navigator.geolocation.getCurrentPosition(', 'window.__homyGpsWatch = navigator.geolocation.watchPosition(', 'continuous partner GPS');
 replaceOnce(`      async position => {
         try {
