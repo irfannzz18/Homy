@@ -12,7 +12,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
       - run: node scripts/prepare.js
       - run: npm install --include=dev --no-audit --no-fund
       - run: npm run build:all
