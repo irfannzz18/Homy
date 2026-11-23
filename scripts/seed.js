@@ -62,7 +62,7 @@ async function main() {
     const imageUrl=photos[category];
     await db.product.create({data:{
       name,description,category,type:'VEG',pricePaise:rupees*100,imageUrl,
-      servings:2,prepMinutes:25,isAvailable:true,
+      servings:2,prepMinutes:25,isAvailable:false,
       ingredients:{create:lines.map((line,sortOrder)=>{const [ingredient,quantity]=line.split('|');return{name:ingredient,quantity,imageUrl,sortOrder};})},
       images:{create:[{imageUrl,sortOrder:0}]}
     }});
