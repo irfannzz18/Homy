@@ -3,7 +3,7 @@ services:
     name: homy
     runtime: node
     plan: starter
-    buildCommand: npm install && node scripts/prepare.js && npm run build --workspace=@homy/api && npx prisma db push --schema=apps/api/prisma/schema.prisma && npm run prisma:seed --workspace=@homy/api
+    buildCommand: npm install && npm run build:api && npx prisma db push --schema=apps/api/prisma/schema.prisma && npm run prisma:seed --workspace=@homy/api
     startCommand: npm run start --workspace=@homy/api
     healthCheckPath: /api/health
     envVars:

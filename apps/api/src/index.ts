@@ -25,7 +25,7 @@ if (SECRET.length < 32) {
   throw new Error("JWT_SECRET must contain at least 32 characters");
 }
 
-app.use(helmet());
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({
   origin: process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(",")
