@@ -1,27 +1,32 @@
 # HØmy
 
-One responsive website for three roles: Customer, Delivery Partner and Admin. One Render web service serves the website and API; PostgreSQL stores accounts, dishes, orders and delivery records. No APK build and no Razorpay integration.
+HØmy is a single-origin web application with three role-based interfaces: Customer, Delivery Partner and Admin. One Node/Express service serves the website in `public/` and the API at `/api`. PostgreSQL stores users, menu items, orders and delivery tracking.
 
-## Deploy on Render
-1. Create a Render Blueprint from this repository and select `render.yaml`.
-2. Enter `ADMIN_EMAIL` and a unique `ADMIN_PASSWORD` (minimum 12 characters) when prompted.
-3. Deploy. The Blueprint provisions one web service and its PostgreSQL database.
-4. Open the service URL. Customer registration is public; partner accounts are created by Admin.
+## Architecture
+- `public/index.html`, `public/app.js`, `public/styles.css`: the only website UI for all three roles.
+- `apps/api/src/index.ts`: authentication, catalogue, orders, admin and partner API.
+- `apps/api/prisma/schema.prisma`: PostgreSQL data model.
+- `scripts/seed.js`: creates the initial admin and South Indian dish catalogue. New seeded dishes are unpublished.
+- `render.yaml`: one Render web service and one PostgreSQL database.
 
-## Local
-- Node.js 20+
-- PostgreSQL
-- `npm install`
-- Set `DATABASE_URL`, `JWT_SECRET` (32+ chars), `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME`.
-- `npm run build --workspace=@homy/api`
-- `npx prisma db push --schema=apps/api/prisma/schema.prisma`
-- `npm run prisma:seed --workspace=@homy/api`
-- `npm run start --workspace=@homy/api`
+There is no separate admin/customer/partner frontend deployment and no APK build.
 
-The frontend is served from `public/` by the API service. The API is same-origin at `/api`.
+## Local run
+1. Install Node.js 22 and PostgreSQL.
+2. Run `npm install`.
+3. Set `DATABASE_URL`, `JWT_SECRET` (at least 32 characters), `ADMIN_EMAIL`, and `ADMIN_PASSWORD` (at least 12 characters). Optionally set `ADMIN_NAME`.
+4. Run `npm run build`.
+5. Run `npm run db:push`.
+6. Run `npm run seed`.
+7. Run `npm start`.
+8. Open `http://localhost:4000`.
 
-## Notes
-- COD orders stay pending until delivery OTP verification.
-- Maps, Google OAuth, SMS OTP and card payments require their own provider credentials and are intentionally not faked.
-- Set a persistent PostgreSQL database in production. Do not use local filesystem storage for orders.
-- Developer credit: Developed by Irfan S.
+## Render deployment
+Create a Blueprint from this repository using `render.yaml`. Enter `ADMIN_EMAIL` and `ADMIN_PASSWORD` when prompted. Render provisions the web service and PostgreSQL database. The health endpoint is `/api/health`.
+
+## Important integration limits
+Google Maps needs a configured Maps Platform key and billing. Google sign-in and SMS OTP need OAuth/SMS provider credentials. Live browser location requires the delivery partner to grant location permission and keep the app active; reliable background tracking requires a native app. These integrations must not be represented as active until configured and tested. Razorpay is intentionally excluded.
+
+COD is the only enabled payment method. Keep the database and backups; do not delete order history to clear the daily dashboard.
+
+Footer credit: Developed by Irfan S. HØmy — All rights reserved.
