@@ -126,7 +126,7 @@ replaceOnce(`      await db.deliveryPartner.update({
       });
 
       if (active.length) {`, 'location sharing gate');
-replaceOnce(`/* SINGLE-WEBSITE HOSTING: all three role interfaces share this origin. */`, `app.get("/api/geocode/reverse", async (req, res) => {
+replaceOnce(`/* SERVER ERROR HANDLING */`, `app.get("/api/geocode/reverse", async (req, res) => {
   const latitude = Number(req.query.lat);
   const longitude = Number(req.query.lng);
   const key = process.env.GOOGLE_MAPS_API_KEY;
@@ -147,7 +147,9 @@ replaceOnce(`/* SINGLE-WEBSITE HOSTING: all three role interfaces share this ori
   }
 });
 
-/* SINGLE-WEBSITE HOSTING: all three role interfaces share this origin. */`, 'reverse geocoding route');
+/* SINGLE-WEBSITE HOSTING: all three role interfaces share this origin. */
+
+/* SERVER ERROR HANDLING */`, 'reverse geocoding route');
 replaceOnce('setAddress(`${c.latitude.toFixed(6)}, ${c.longitude.toFixed(6)}`);', `fetch("/api/geocode/reverse?lat=" + c.latitude + "&lng=" + c.longitude)
           .then(response => response.json())
           .then(result => {
