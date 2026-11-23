@@ -1,65 +1,34 @@
-
 # HØmy
 
-South Indian meal-kit ordering platform.
+HØmy is one full-stack website with three role-based interfaces on the same domain:
 
-## Applications
+- Customer: `/customer/`
+- Delivery Partner: `/partner/`
+- Admin: `/admin/`
 
-- `apps/api` — Express, Prisma and PostgreSQL backend
-- `apps/admin` — Kitchen administration dashboard
-- `apps/customer-web` — Customer ordering website
-- `apps/mobile` — Customer Android application
-- `apps/partner` — Delivery partner dashboard
+A single Node/Express web service serves all three Vite applications and the API. PostgreSQL stores accounts, dishes, orders and delivery tracking. No APK and no separate frontend services are part of this deployment.
 
-## Backend
+## Render deployment
 
-Required environment variables:
+Deploy the root `render.yaml` as a Blueprint. It creates one Node web service and one PostgreSQL database. Configure the prompted `ADMIN_EMAIL` and `ADMIN_PASSWORD` (at least 12 characters). Render generates `JWT_SECRET` automatically.
 
-- DATABASE_URL
-- JWT_SECRET
-- ADMIN_EMAIL
-- ADMIN_PASSWORD
-- ADMIN_NAME
-- UPI_ID (optional)
+The build prepares the API, installs workspace dependencies and builds the three web interfaces. Startup applies the Prisma schema, seeds the administrator and 36 South Indian meal kits, then starts the one web service.
 
-Install dependencies:
+## Local commands
 
-    npm install
+```bash
+npm install
+npm run prepare:api
+npm run build:all
+npm run db:push
+npm run seed
+npm start
+```
 
-Build the API:
+Required environment variables: `DATABASE_URL`, `JWT_SECRET` (32+ characters), `ADMIN_EMAIL`, `ADMIN_PASSWORD` (12+ characters), `ADMIN_NAME`. `VITE_API_URL=/api` is used for the same-origin deployment. `GOOGLE_MAPS_API_KEY` is optional until the Google Maps integration is configured.
 
-    npm run build:api
+Cash on Delivery is the only enabled payment method. COD is marked collected only after the partner verifies the customer's six-digit delivery OTP. The partner API does not disclose order totals or OTP hashes. New admin-created dishes default to unpublished.
 
-The API listens on the Render-provided PORT.
+Google OAuth, SMS login and online payments are not enabled until their provider credentials and verification flows are configured. Browser GPS works while the partner page is open and location permission is granted; browsers cannot guarantee background tracking.
 
-## Admin website
-
-Build:
-
-    npm run build:admin
-
-Set VITE_API_URL to your API URL plus /api.
-
-## Customer website
-
-Build:
-
-    npm run build:customer
-
-Set VITE_API_URL to your API URL plus /api.
-
-## Partner dashboard
-
-Build:
-
-    npm run build:partner
-
-Set VITE_API_URL to your API URL plus /api.
-
-## Android customer application
-
-The Android application is built separately using Expo and EAS.
-
-## Security
-
-Never commit production passwords, database credentials or JWT secrets.
+Footer credit: Developed by Irfan S · HØmy — All rights reserved.
