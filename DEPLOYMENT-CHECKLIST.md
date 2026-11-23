@@ -1,77 +1,39 @@
+# HØmy — One Website Deployment
 
-# HØmy Deployment Checklist
+## Render Blueprint
 
-## 1. PostgreSQL
+1. Open Render → **New → Blueprint**.
+2. Connect `irfannzz18/Homy`, branch `main`.
+3. Render reads `render.yaml` and creates exactly one Node web service (`homy`) plus one PostgreSQL database (`homy-db`). Customer, partner and admin are routes on the same website.
+4. Enter `ADMIN_EMAIL` and a strong `ADMIN_PASSWORD` of at least 12 characters. Render generates `JWT_SECRET`.
+5. Optionally enter `GOOGLE_MAPS_API_KEY`; keep it website-referrer restricted.
+6. Apply the Blueprint and wait for the web service to deploy.
 
-Create or use a PostgreSQL database on Render.
+## Service settings
 
-Set DATABASE_URL in the API service.
+- Root directory: repository root
+- Build: `node scripts/prepare.js && npm install --include=dev && npm run build:all`
+- Start: `npm run db:push && npm run seed && npm start`
+- Health check: `/api/health`
+- Database: Render PostgreSQL Internal Database URL in `DATABASE_URL`
+- Build environment: `VITE_API_URL=/api`
 
-## 2. API service
+## Website routes
 
-Render service:
+- `/` redirects to `/customer/`
+- `/customer/` customer storefront and order history
+- `/partner/` delivery partner workspace
+- `/admin/` admin dashboard and menu catalogue
 
-- Name: homy-api
-- Root directory: apps/api
-- Build command: npm install && npx prisma generate && npx prisma db push && npm run build
-- Start command: npm start
+## Smoke test after deploy
 
-Environment variables:
+1. Open `/api/health`; expect status `ok`.
+2. Sign in to admin using the credentials entered in Render.
+3. Confirm the 36 seeded South Indian meal kits are listed.
+4. Create a customer account, place a COD order and assign it to an active partner.
+5. Partner accepts the assignment, starts delivery and shares GPS while the page remains open.
+6. Customer sees the delivery OTP after partner acceptance. Partner enters it to complete delivery; COD becomes collected.
+7. Verify partner total is hidden until successful OTP verification.
+8. Add a new dish and confirm it is unpublished until explicitly published.
 
-- DATABASE_URL
-- JWT_SECRET
-- ADMIN_NAME
-- ADMIN_EMAIL
-- ADMIN_PASSWORD
-- PORT (Render supplies this)
-
-Generate a long random JWT_SECRET.
-Use a unique admin password of at least 12 characters.
-
-## 3. Admin website
-
-- Root directory: apps/admin
-- Build command: npm install && npm run build
-- Publish directory: dist
-- VITE_API_URL: https://YOUR-API.onrender.com/api
-
-## 4. Customer website
-
-- Root directory: apps/customer-web
-- Build command: npm install && npm run build
-- Publish directory: dist
-- VITE_API_URL: https://YOUR-API.onrender.com/api
-
-## 5. Partner dashboard
-
-- Root directory: apps/partner
-- Build command: npm install && npm run build
-- Publish directory: dist
-- VITE_API_URL: https://YOUR-API.onrender.com/api
-
-## 6. Admin account
-
-After the API is deployed and the database is ready, run the seed script once in an environment with the production database connection:
-
-    npm run prisma:seed --workspace=@homy/api
-
-## 7. Android app
-
-From apps/mobile, install dependencies and build the Android APK with EAS.
-
-## 8. Test before launch
-
-- API health endpoint
-- Admin sign-in
-- Customer registration and sign-in
-- Product create and hide/list
-- Cart calculations
-- COD order placement
-- Order status updates
-- Partner account sign-in
-- Partner assignment and acceptance
-- OTP delivery verification
-- Location permission and GPS update
-- Customer order history
-
-Do not advertise UPI as available until a real payment provider and payment verification workflow are configured.
+Do not advertise Google login, SMS OTP login, online payment or background GPS until those integrations are separately configured and tested. Razorpay and APK builds are intentionally excluded.
